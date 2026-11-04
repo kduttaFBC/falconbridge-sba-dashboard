@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>New analysis</h1>
+{% if not periods %}
+  <p class="err">{{ message }}</p>
+{% else %}
+<section class="card select-card">
+  <form method="get" action="/confirm" id="pick" class="pick" autocomplete="off">
+    <label>Reporting period (SBA FOIA release)
+      <select name="period" id="period">{% for p in periods %}<option value="{{ p }}" {% if p == period %}selected{% endif %}>{{ p[:4] }}-{{ p[4:6] }}-{{ p[6:] }}</option>{% endfor %}</select>
+    </label>
+    <label>1. State
+      <select name="state" id="state">
+        <option value="">Select a state</option>
+        {% for s, n in states %}<option value="{{ s }}">{{ s or "(no state published)" }} &mdash; {{ n }} bank{{ "s" if n != 1 }}</option>{% endfor %}
+      </select>
+    </label>
+    <div class="combo">
+      <label for="bank-input">2. Bank</label>
+      <input id="bank-input" placeholder="Select a state first" disabled role="combobox" aria-expanded="false" aria-controls="bank-list" aria-autocomplete="list">
+      <input type="hidden" name="name" id="bank-name" required>
+      <ul id="bank-list" class="combo-list" role="listbox" hidden></ul>
+      <div class="muted" id="bank-hint">Type part of the name, a city or an FDIC certificate to filter.</div>
+    </div>
+    <label>3. Original loan balance threshold ($)
+      <input name="threshold" id="threshold" value="{{ '{:,}'.format(default_threshold) }}" inputmode="numeric">
+      <span class="chips">{% for v in (150000, 350000, 500000, 1000000) %}<button type="button" class="chip" data-v="{{ '{:,}'.format(v) }}">{{ "$1M" if v == 1000000 else "$" ~ (v // 1000) ~ "K" }}</button>{% endfor %}</span>
+    </label>
+    <div><button type="submit" class="primary" id="go" disabled>Continue</button></div>
+  </form>
+</section>
+
+<section class="card">
+<h2>Or find a bank by name or FDIC certificate (all states)</h2>
+<form method="get" action="/" class="search">
+  <input type="hidden" name="period" value="{{ period }}">
+  <label>Bank name or FDIC certificate
+    <input name="q" value="{{ q }}" placeholder="e.g. US Metro or 58310">
+  </label>
+  <button type="submit">Search</button>
+</form>
+{% if message %}<p class="warn">{{ message }}</p>{% endif %}
+{% if hits %}
+<h3>Matching lenders <span class="muted">({{ total }}{% if total > hits|length %}, first {{ hits|length }} shown - type more to narrow{% endif %})</span></h3>
+<table>
+<thead><tr><th>Bank name</th><th>State</th><th class="num">Eligible loans</th><th>FDIC certificate(s)</th><th class="num">SBA lender IDs</th><th></th></tr></thead>
+<tbody>
+{% for (name, state), v in hits %}
+<tr>
+  <td>{{ name }}</td><td>{{ state }}</td><td class="num">{{ "{:,}".format(v.eligible) }}</td>
+  <td>{% for c in v.certs %}{{ c or "(none)" }}{% if not loop.last %}, {% endif %}{% endfor %}{% if v.certs|length > 1 %} <span class="flag">more than one lender</span>{% endif %}</td>
+  <td class="num">{{ v.location_ids }}</td>
+  <td><a class="button" href="/confirm?{{ {'period': period, 'name': name, 'state': state, 'cert': (norm(q) if q.strip().isdigit() else '')} | urlencode }}">Select</a></td>
+</tr>
+{% endfor %}
+</tbody></table>
+{% endif %}
+</section>
+{% endif %}
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const state = $("state"), input = $("bank-input"), list = $("bank-list"), hidden = $("bank-name"), go = $("go");
+  let banks = [], active = -1;
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+  function render(filter) {
+    const f = (filter || "").toLowerCase();
+    const shown = banks.filter((b) => !f || b.name.toLowerCase().includes(f) || b.cities.join(" ").toLowerCase().includes(f)
+      || b.certs.some((c) => c.includes(f)));
+    list.innerHTML = shown.slice(0, 400).map((b, i) =>
+      `<li role="option" data-name="${esc(b.name)}" id="opt-${i}"><span class="b-name">${esc(b.name)}</span>` +
+      (b.several_lenders ? ' <span class="flag">more than one lender - confirm next</span>' : "") +
+      (b.similar_name && !b.several_lenders ? ' <span class="flag">similar name</span>' : "") +
+      `<span class="b-meta">${esc(b.cities.slice(0, 3).join(", ") || "city not published")} &middot; FDIC ${esc(b.certs.join(", ") || "none")} &middot; ${b.eligible.toLocaleString("en-US")} loans</span></li>`).join("")
+      || '<li class="muted">No bank in this state matches.</li>';
+    list.hidden = false; input.setAttribute("aria-expanded", "true"); active = -1;
+  }
+  function choose(name) {
+    hidden.value = name; input.value = name; list.hidden = true; input.setAttribute("aria-expanded", "false"); go.disabled = false;
+  }
+  state.addEventListener("change", async () => {
+    hidden.value = ""; input.value = ""; go.disabled = true; list.hidden = true;
+    if (!state.value && state.selectedIndex === 0) { input.disabled = true; input.placeholder = "Select a state first"; return; }
+    input.disabled = true; input.placeholder = "Loading banks...";
+    const r = await fetch(`/api/banks?period=${encodeURIComponent($("period").value)}&state=${encodeURIComponent(state.value)}`);
+    banks = await r.json();
+    input.disabled = false; input.placeholder = `Search ${banks.length} banks in ${state.value || "this group"}`;
+    $("bank-hint").textContent = `${banks.length} banks with eligible SBA 7(a) loans, largest first. Type to filter by name, city or FDIC certificate.`;
+    input.focus(); render("");
+  });
+  input.addEventListener("input", () => { hidden.value = ""; go.disabled = true; render(input.value); });
+  input.addEventListener("focus", () => { if (banks.length) render(input.value === hidden.value ? "" : input.value); });
+  input.addEventListener("keydown", (e) => {
+    const items = [...list.querySelectorAll("li[data-name]")];
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault(); active = Math.max(0, Math.min(items.length - 1, active + (e.key === "ArrowDown" ? 1 : -1)));
+      items.forEach((li, i) => li.classList.toggle("active", i === active));
+      if (items[active]) { items[active].scrollIntoView({block: "nearest"}); input.setAttribute("aria-activedescendant", items[active].id); }
+    } else if (e.key === "Enter" && active >= 0 && items[active]) { e.preventDefault(); choose(items[active].dataset.name); }
+    else if (e.key === "Escape") { list.hidden = true; }
+  });
+  list.addEventListener("mousedown", (e) => { const li = e.target.closest("li[data-name]"); if (li) { e.preventDefault(); choose(li.dataset.name); } });
+  document.addEventListener("click", (e) => { if (!e.target.closest(".combo")) list.hidden = true; });
+  document.querySelectorAll(".chip").forEach((c) => c.addEventListener("click", () => { $("threshold").value = c.dataset.v; }));
+  $("period").addEventListener("change", () => { location.href = "/?period=" + encodeURIComponent($("period").value); });
+  const pre = new URLSearchParams(location.search).get("state");
+  if (pre !== null && [...state.options].some((o) => o.value === pre && o.index > 0)) {
+    state.value = pre; state.dispatchEvent(new Event("change"));
+  }
+})();
+</script>
+{% endblock %}

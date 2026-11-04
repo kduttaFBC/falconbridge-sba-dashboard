@@ -1,0 +1,33 @@
+# ALLOW-LIST: everything is excluded unless listed here. Confidential FalconBridge workbooks, the workbook template,
+# FOIA data, generated workbooks, acceptance data, reports and app data must never enter Git
+# (the template and FOIA files live on the Render persistent disk; see deploy/README_RENDER.md).
+/*
+!/.gitignore
+!/.python-version
+!/README.md
+!/requirements-web.txt
+!/bank_workbook_generator/
+!/webapp/
+!/tests/
+!/deploy/
+!/acceptance/
+/acceptance/*
+!/acceptance/threshold/
+/acceptance/threshold/*
+!/acceptance/threshold/oracle.py
+!/acceptance/threshold/dashboard_consistency.py
+!/acceptance/threshold/run_matrix.sh
+
+# never, anywhere (defence in depth; also enforced by deploy/check_repo_contents.py)
+__pycache__/
+*.pyc
+.DS_Store
+*.xlsx
+*.xlsm
+*.xlsb
+*.xls
+*.csv
+*.pkl
+*.log
+.venv/
+app_data/

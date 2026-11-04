@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block head %}{% if job.status in ("queued", "running") %}<meta http-equiv="refresh" content="2">{% endif %}{% endblock %}
+{% block content %}
+<h1>Excel report: {{ job.params.bank_name }}, {{ job.params.bank_state }}</h1>
+<p class="muted">Reporting period {{ job.params.period }} &middot; original loan balance threshold <strong>${{ "{:,}".format(job.params.threshold or 350000) }}</strong></p>
+<p class="status s-{{ job.status }}">Status: <strong>{{ job.status | upper }}</strong>
+  {% if job.seconds %}&middot; {{ job.seconds }} s{% endif %}
+  {% if job.status in ("queued", "running") %}&middot; this page refreshes automatically{% endif %}</p>
+{% if job.status == "succeeded" %}
+  <p><a class="button primary" href="/jobs/{{ job.id }}/download">Download {{ job.result.file }}</a>
+     <span class="muted">{{ "{:,}".format(job.result.size) }} bytes &middot; SHA-256 {{ job.result.sha256[:16] }}&hellip;</span></p>
+  <h2>Checks executed</h2>
+  <table><thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead><tbody>
+  {% for c, ok, detail in job.result.checks %}<tr><td>{{ c }}</td><td class="{{ 'pass' if ok else 'fail' }}">{{ "PASS" if ok else "FAIL" }}</td><td>{{ detail }}</td></tr>{% endfor %}
+  </tbody></table>
+  {% if job.result.threshold_sheet_checks %}<p class="muted">The Threshold_Analysis sheet adds {{ job.result.threshold_sheet_checks }} checks of its own
+  (bank threshold groups against the Python recomputation, and above + at or below = total).</p>{% endif %}
+  <h2>Validation sheet (inside the workbook)</h2>
+  <p class="warn">The workbook's Validation sheet holds <strong>{{ job.result.validation_sheet_checks }}</strong> checks that compare
+  each key cell with an independent recalculation. Their PASS/FAIL results are <strong>not available yet</strong>:
+  they are calculated by Microsoft Excel when the workbook is opened in desktop Excel. Open the file, wait for
+  calculation to finish, and read the PASS / FAIL counts at the top of the Validation sheet.</p>
+  <details><summary>Generation record (Generation_Info sheet)</summary>
+  <table class="small"><tbody>{% for k, v in job.result.generation_info %}<tr><th>{{ k }}</th><td>{{ v }}</td></tr>{% endfor %}</tbody></table>
+  </details>
+{% elif job.status == "failed" %}
+  <div class="err"><strong>Not generated.</strong><pre>{{ job.error }}</pre></div>
+{% endif %}
+<h2>Generation log</h2>
+<pre class="log">{% for line in job.log %}{{ line }}
+{% endfor %}{% if job.status == "queued" %}Waiting for the previous report to finish...{% endif %}</pre>
+{% endblock %}

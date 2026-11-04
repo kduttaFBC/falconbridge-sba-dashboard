@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Excel reports</h1>
+{% if not jobs %}<p>No reports yet. <a href="/">Create one</a>.</p>{% else %}
+<table><thead><tr><th>Created</th><th>Bank</th><th>Period</th><th>Threshold</th><th>Status</th><th></th></tr></thead><tbody>
+{% for j in jobs %}<tr><td>{{ j.created }}</td><td>{{ j.params.bank_name }}, {{ j.params.bank_state }}</td><td>{{ j.params.period }}</td><td class="num">${{ "{:,}".format(j.params.threshold or 350000) }}</td>
+<td class="s-{{ j.status }}">{{ j.status }}</td><td><a href="/jobs/{{ j.id }}">Open</a>{% if j.status == "succeeded" %} &middot; <a href="/jobs/{{ j.id }}/download">Download</a>{% endif %}</td></tr>{% endfor %}
+</tbody></table>{% endif %}
+{% endblock %}

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}SBA Bank Intelligence{% endblock %} - FalconBridge (preliminary)</title>
+<link rel="stylesheet" href="/static/style.css">
+{% block head %}{% endblock %}
+</head>
+<body>
+<header class="top">
+  <div class="brand"><a href="/">FalconBridge Capital <span class="sep">|</span> SBA 7(a) Bank Intelligence</a> <span class="tag">Local</span></div>
+  <nav><a href="/">New analysis</a> <a href="/analyses">Saved analyses</a> <a href="/jobs">Excel reports</a></nav>
+</header>
+<div class="prelim" role="note">
+  <strong>PRELIMINARY.</strong> The SBA benchmark is an <em>industry-matched</em> benchmark reproducing FalconBridge's
+  existing method, subject to FalconBridge's methodology confirmation. Source: public SBA 7(a) FOIA data only.
+  Excel workbooks contain formulas: open them in <strong>desktop Microsoft Excel</strong>, which calculates the results
+  and the Validation sheet when the file opens.
+</div>
+<main>{% block content %}{% endblock %}</main>
+<footer>Generator {{ version }} &middot; public SBA 7(a) FOIA data &middot; amounts are original approval amounts or gross
+charge-offs; current outstanding principal is not available from SBA FOIA data</footer>
+</body>
+</html>

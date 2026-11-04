@@ -1,0 +1,35 @@
+# FalconBridge SBA FOIA dashboard - Render Blueprint (PREPARED, NOT APPLIED).
+# Kept in deploy/ (not the repository root) so Render cannot pick it up until it is deliberately used.
+# Client preview behind the preview sign-in (FBX_AUTH_MODE=preview + FBX_PREVIEW_USERS secret). Fails closed
+# (deploy/start_render.sh): maintenance responder until the disk data is installed; no start without credentials.
+services:
+  - type: web
+    name: falconbridge-sba-foia
+    runtime: python
+    plan: 1c-2g               # 1 CPU / 2 GB (paid; required for a disk and SSH). Peak ~1.0 GB per generation + ~0.5 GB web
+    region: oregon            # US region; confirm with FalconBridge
+    autoDeployTrigger: off    # deploy only by explicit action (replaces the deprecated autoDeploy)
+    buildCommand: pip install -r requirements-web.txt
+    startCommand: bash deploy/start_render.sh
+    healthCheckPath: /healthz
+    disk:
+      name: fbx-data
+      mountPath: /var/data    # source_data/20260630, template/, cache/, app_data/ - uploaded separately, never in Git
+      sizeGB: 10
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.15
+      - key: FBX_DATA_ROOT
+        value: /var/data
+      - key: FBX_APP_DATA
+        value: /var/data/app_data
+      - key: FBX_AUTH_MODE
+        value: preview        # every route except /healthz requires sign-in
+      - key: FBX_PREVIEW_USERS
+        sync: false           # secret: user:scrypt-hash entries from deploy/make_preview_credential.py
+      - key: FBX_SOURCE_NOTES
+        value: /var/data/config/source_notes.json   # protected client-specific notes (not in Git)
+      - key: FBX_JOB_TIMEOUT
+        value: "300"
+      - key: FBX_ALLOWED_HOSTS
+        sync: false           # set to the Render hostname (and custom domain) at creation

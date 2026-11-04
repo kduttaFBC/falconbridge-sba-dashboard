@@ -1,0 +1,493 @@
+{% extends "base.html" %}
+{% block title %}{{ payload.criteria.bank_name }} - SBA 7(a) Performance Summary{% endblock %}
+{% block head %}<script src="/static/vendor/chart.umd.min.js"></script>{% endblock %}
+{% block content %}
+{% set c = payload.criteria %}
+{% macro hidden(f) %}
+  <input type="hidden" name="period" value="{{ f.period }}"><input type="hidden" name="name" value="{{ f.name }}">
+  <input type="hidden" name="state" value="{{ f.state }}"><input type="hidden" name="cert" value="{{ f.cert }}">
+  {% for l in f.loc %}<input type="hidden" name="loc" value="{{ l }}">{% endfor %}
+{% endmacro %}
+{% macro report_actions() %}
+  {% if saved %}
+    {% set j = saved.job %}
+    {% if j and j.status == "succeeded" %}<a class="button primary" href="/jobs/{{ j.id }}/download">Download Excel workbook (${{ "{:,}".format(c.threshold) }})</a>
+    {% elif j %}<a class="button" href="/jobs/{{ j.id }}">Excel workbook: {{ j.status }}&hellip;</a>{% endif %}
+  {% else %}
+    <form method="post" action="/jobs">{{ hidden(form) }}<input type="hidden" name="token" value="{{ token }}">
+      <input type="hidden" name="threshold" value="{{ c.threshold }}">
+      <button type="submit" class="primary">Generate Excel workbook (${{ "{:,}".format(c.threshold) }})</button></form>
+    <form method="post" action="/analyses">{{ hidden(form) }}<input type="hidden" name="token" value="{{ token }}">
+      <input type="hidden" name="threshold" value="{{ c.threshold }}"><input type="hidden" name="view" value="total">
+      <button type="submit">Save analysis</button></form>
+  {% endif %}
+{% endmacro %}
+
+<section class="dash-head">
+  <div>
+    <div class="eyebrow">SBA 7(a) Historical Performance &middot; SBA FOIA data as of {{ c.as_of }}</div>
+    <h1 class="bank">{{ c.bank_name }} <span class="st">{{ c.bank_state }}</span></h1>
+    <div class="idline">FDIC certificate {{ c.cert or "none published" }} &middot; SBA lender ID{{ "s" if c.location_ids|length > 1 }}
+      {{ c.location_ids|join(", ") }} &middot; original loan balance threshold <strong>${{ "{:,}".format(c.threshold) }}</strong></div>
+  </div>
+  <div class="actions">{{ report_actions() }}<a class="button" href="/">New analysis</a></div>
+</section>
+{% if saved %}<p class="note-saved">Saved analysis &middot; {{ saved.created }} &middot; figures frozen as saved &middot;
+  Excel workbook generated for the same criteria{% if saved.job %}: {{ saved.job.status }}{% endif %}.</p>{% endif %}
+{% if threshold_error %}<p class="warn">{{ threshold_error }} The default $350,000 is shown.</p>{% endif %}
+
+<div class="tbar">  {% if not saved %}
+  <form method="get" action="/dashboard" class="tform">{{ hidden(form) }}
+    <input type="hidden" name="tab" value="{{ tab }}" class="keep-tab">
+    <label class="inline">Original loan balance threshold $<input name="threshold" value="{{ form.threshold }}" inputmode="numeric" aria-label="Original loan balance threshold"></label>
+    <button type="submit">Apply</button>
+    <span class="chips">{% for v in (150000, 350000, 500000, 1000000) %}<button type="submit" name="threshold" value="{{ v }}" class="chip{% if v == c.threshold %} on{% endif %}">{{ "$1M" if v == 1000000 else "$" ~ (v // 1000) ~ "K" }}</button>{% endfor %}</span>
+  </form>
+  {% endif %}
+  <span class="muted tnote">Applies to the dashboard and the Excel workbook</span>
+</div>
+<nav class="tabs" role="tablist">
+  <button type="button" data-tab="executive" role="tab">Executive Portfolio</button>
+  <button type="button" data-tab="analysis" role="tab">Portfolio Analysis</button>
+  <button type="button" data-tab="benchmark" role="tab">Benchmark Analysis</button>
+  <button type="button" data-tab="reports" role="tab">Methodology &amp; Reports</button>
+</nav>
+
+<!-- ============================================================ Executive Portfolio -->
+<div class="tab" id="tab-executive">
+  <section class="obs card" id="obs"></section>
+  <section class="card">
+    <div class="sec-head"><h2>Performance Summary</h2>
+      <span class="muted">FalconBridge PerformanceSummary measures &middot; amounts are original approval amounts</span></div>
+    <div id="scorecard"></div>
+    <div class="age-callout" id="age-callout"></div>
+    <div class="src-note" id="src-note" hidden></div>
+    <p class="fine" id="score-notes"></p>
+  </section>
+  <section class="card" id="like-card">
+    <div class="sec-head"><h2>Is the overall comparison like-for-like?</h2>
+      <span class="muted">portfolio age and the FalconBridge vintage rows &middot; no adjustment is made to the benchmark</span></div>
+    <div class="grid2">
+      <div><h3 class="h3s">Share of original gross amount by disbursement year</h3><div id="t-age"></div>
+        <ul class="facts-list" id="comparability"></ul></div>
+      <div><h3 class="h3s">% Cum. Defaulted by vintage: bank vs SBA benchmark</h3>
+        <div class="cv" id="age-chart-wrap"><canvas id="c-age"></canvas></div>
+        <p class="fine" id="age-chart-note"></p></div>
+    </div>
+    <details><summary>Vintage table (PerformanceSummary vintage rows)</summary><div id="t-age-v"></div></details>
+  </section>
+  <section class="card">
+    <div class="sec-head"><h2>% Cum. Defaulted by SBA benchmark group</h2>
+      <span class="muted">the directly comparable measure &middot; loans approved FY2000 onward</span></div>
+    <div class="tiles" id="dtiles"></div>
+    <p class="fine caveat" id="tiles-caveat"></p>
+    <p class="fine">Bank rates for Standard and Small use the bank threshold split, an enhancement beyond FalconBridge's
+      original workbook. The bank is not split by loan term in FalconBridge's method, so Non-CRE and CRE show the SBA
+      benchmark only.</p>
+  </section>
+  <p class="fine sec-note">Securitization data (FalconBridge loan tape: unguaranteed balances, WALA, credit and SBSS scores) is
+    not available from SBA FOIA data and is not shown. SBA benchmark: PRELIMINARY.</p>
+</div>
+
+<!-- ============================================================ Portfolio Analysis -->
+<div class="tab" id="tab-analysis">
+  <div class="subnav">
+    <button type="button" data-sub="vintages">Vintages</button><button type="button" data-sub="industries">Industries</button><button type="button" data-sub="subprograms">Subprograms</button>
+    <span class="muted">Bank: full history (PerformanceSummary rows) &middot; SBA: industry-matched benchmark, FY2000 onward</span>
+  </div>
+  <div class="sub" id="sub-vintages">
+    <section class="card" id="v-chart-card"><div class="sec-head"><h2>% Cum. Defaulted by vintage</h2>
+      <span class="muted">vintage = year of first disbursement &middot; bank vs All SBA 7(a)</span></div>
+      <div class="cv"><canvas id="c-vint"></canvas></div></section>
+    <div class="limit" id="v-limit" hidden></div>
+    <section class="card"><div id="t-vint"></div><p class="fine" id="v-note"></p></section>
+  </div>
+  <div class="sub" id="sub-industries">
+    <section class="card" id="i-chart-card"><div class="sec-head"><h2>Industry exposure</h2>
+      <span class="muted">top 10 industries by original gross amount (% of Total Orig.)</span></div>
+      <div class="cv tall"><canvas id="c-ind"></canvas></div></section>
+    <section class="card"><div id="t-ind"></div></section>
+  </div>
+  <div class="sub" id="sub-subprograms">
+    <section class="card"><div class="sec-head"><h2>Subprograms</h2><span class="muted">FalconBridge display labels &middot; full history</span></div>
+      <div id="t-sub"></div></section>
+  </div>
+</div>
+
+<!-- ============================================================ Benchmark Analysis -->
+<div class="tab" id="tab-benchmark">
+  <p class="basis" id="basis"></p>
+  <div class="limit" id="b-limit" hidden></div>
+  <div id="b-body">
+    <section class="card"><div class="sec-head"><h2>% Cum. Defaulted: bank vs SBA benchmark groups</h2>
+      <span class="muted">primary comparable measure</span></div><div id="t-groups"></div></section>
+    <section class="card"><div class="sec-head"><h2>% Cum. Defaulted by vintage</h2>
+      <div class="seg small" id="bgsel"><button type="button" data-g="total">All SBA 7(a)</button><button type="button" data-g="above">Standard</button><button type="button" data-g="below">Small</button></div></div>
+      <div class="cv" id="b-chart-wrap"><canvas id="c-bvint"></canvas></div><p class="fine" id="b-chart-note"></p></section>
+    <section class="card"><div class="sec-head"><h2>Industry comparison</h2><span class="muted" id="bi-sub"></span></div><div id="t-bind"></div></section>
+  </div>
+  <details class="card"><summary><h2 class="inline-h">Detailed benchmark measures</h2> <span class="muted">All SBA 7(a), Standard, Small, Non-CRE, CRE</span></summary>
+    <div id="t-bdetail"></div><p class="fine" id="bd-note"></p></details>
+  <details class="card enh"><summary><h2 class="inline-h">Bank loan size split</h2> <span class="badge">Enhancement beyond FalconBridge's original workbook</span></summary>
+    <p class="fine">FalconBridge's method applies the loan size threshold to the SBA benchmark only. This split applies the
+      same rule (GrossApproval rounded to whole dollars &gt; ${{ "{:,}".format(c.threshold) }}) to the bank's loans; the bank's
+      original portfolio measures are on the Executive Portfolio screen. Workbook sheet: Threshold_Analysis.</p>
+    <div class="seg small" id="hsel"><button type="button" data-h="full">Full history</button><button type="button" data-h="fy2000">FY2000 onward</button></div>
+    <div id="t-split"></div></details>
+</div>
+
+<!-- ============================================================ Methodology & Reports -->
+<div class="tab" id="tab-reports">
+  <section class="card"><div class="sec-head"><h2>Reports</h2></div>
+    <div class="actions">{{ report_actions() }}<a class="button" href="/analyses">Saved analyses</a><a class="button" href="/jobs">Excel reports</a></div>
+    <p class="fine">The Excel workbook is generated by the validated generator for exactly this bank, reporting period and
+      threshold (${{ "{:,}".format(c.threshold) }}). Its PerformanceSummary and Threshold_Analysis sheets hold the figures shown here.</p></section>
+  <section class="card"><h2>Methodology disclosures</h2>
+    <ul class="disc" id="disc"></ul>
+    <table class="small"><thead><tr><th></th><th>Bank (PerformanceSummary K:W)</th><th>SBA benchmark (X:CE)</th></tr></thead><tbody>
+      <tr><th>Approval years</th><td>Full history; FY2000 onward for benchmark comparisons</td><td>FY2000 onward</td></tr>
+      <tr><th>Defaulted</th><td>LoanStatus CHGOFF / CLSLN</td><td>ChargeOffDate present</td></tr>
+      <tr><th>Est. outstanding</th><td>LoanStatus active group (EXEMPT)</td><td>No PaidInFullDate and no ChargeOffDate</td></tr>
+      <tr><th>Industries (totals, vintages)</th><td>The bank's loans</td><td>SBA loans in all of the bank's industries</td></tr>
+      <tr><th>Loss severity, cum. loss totals</th><td>Pooled</td><td>Default-weighted industry average (template formula)</td></tr>
+    </tbody></table></section>
+  <section class="card"><h2>FalconBridge definitions</h2><p class="fine">From the FalconBridge workbook Glossary, as in the generated workbook.</p>
+    <div id="gloss"></div></section>
+  <details class="card"><summary><h2 class="inline-h">Supplementary analysis</h2> <span class="badge">Not in FalconBridge's PerformanceSummary</span></summary>
+    <div class="grid2">
+      <figure class="chart" id="s1"><figcaption>Original gross amount by vintage</figcaption><div class="cv"><canvas id="c-orig"></canvas></div></figure>
+      <figure class="chart" id="s2"><figcaption>Gross charge-offs by charge-off year <span>year of ChargeOffDate; status CHGOFF</span></figcaption><div class="cv"><canvas id="c-chg"></canvas></div></figure>
+      <figure class="chart" id="s3"><figcaption>Loan status as of {{ c.as_of }} <span>LoanStatus as published (EXEMPT: active loan whose detailed status SBA does not disclose)</span></figcaption><div class="cv"><canvas id="c-status"></canvas></div></figure>
+      <figure class="chart" id="s4"><figcaption>Paid in full by vintage <span>original amount of loans in status P I F &divide; original gross amount</span></figcaption><div class="cv"><canvas id="c-pif"></canvas></div></figure>
+    </div><p class="fine" id="s-note"></p></details>
+  <section class="card"><h2>Validation and data</h2>
+    <dl class="facts">
+      <dt>Source</dt><dd>Public SBA 7(a) FOIA, AsOfDate {{ c.as_of }}: {{ payload.release.files|join(", ") }}</dd>
+      <dt>Lender identity</dt><dd>{{ payload.identity.resolution }}</dd>
+      <dt>Validation</dt><dd>Dashboard figures are the generator's own calculations. For US Metro, FinWise and Shoreham at
+        $150K, $350K, $500K and $1M they were reconciled cell by cell to the workbook recalculated in LibreOffice
+        (0 differences). Validation in desktop Microsoft Excel is pending for threshold workbooks.</dd>
+      <dt>Not available from SBA FOIA</dt><dd>Current outstanding principal and balances, recoveries and net charge-offs,
+        delinquency, credit and SBSS scores.</dd>
+      <dt>Calculation version</dt><dd>{{ payload.calculation_version }}</dd>
+    </dl></section>
+</div>
+
+<script id="payload" type="application/json">{{ data|replace("</", "<\\/")|safe }}</script>
+<script>
+(function () {
+  const P = JSON.parse(document.getElementById("payload").textContent);
+  // analyses saved by an earlier dashboard version: show their frozen figures; sections that need fields they do not
+  // hold are marked as unavailable rather than recomputed
+  const LEGACY = !P.default_line;
+  P.default_line = P.default_line || [];
+  P.glossary = P.glossary || [];
+  ["noncre", "cre"].forEach((g) => { if (!P.benchmark[g]) P.benchmark[g] = {name: g === "cre" ? "CRE" : "Non-CRE", total: {loans: 0}, vintage: [], sector: []}; });
+  const C = P.criteria, B = P.bank, BM = P.benchmark, I = P.insights;
+  const T = "$" + C.threshold.toLocaleString("en-US");
+  const BLUE = "#2a78d6", ORANGE = "#eb6834", AQUA = "#1baf7a", GREY = "#8a8984", INK = "#1d2733", MUTED = "#5d6b7a", GRID = "#e9edf1";
+  let tab = "{{ tab }}", sub = "vintages", bg = "total", hist = "full";
+  const isNum = (v) => typeof v === "number" && isFinite(v);
+  const money = (v) => !isNum(v) ? (v === "n/a" ? "n/a" : "–") : Math.abs(v) >= 1e9 ? "$" + (v / 1e9).toFixed(2) + "B"
+    : Math.abs(v) >= 1e6 ? "$" + (v / 1e6).toFixed(1) + "M" : Math.abs(v) >= 1e3 ? "$" + (v / 1e3).toFixed(0) + "K" : "$" + v.toFixed(0);
+  const exact = (v) => isNum(v) ? "$" + v.toLocaleString("en-US", {maximumFractionDigits: 0}) : "";
+  const pct = (v) => isNum(v) ? (v * 100).toFixed(2) + "%" : (v === "n/a" ? "n/a" : "–");
+  const pp = (v) => isNum(v) ? (v >= 0 ? "+" : "−") + Math.abs(v * 100).toFixed(2) + " pp" : "–";
+  const int = (v) => isNum(v) ? v.toLocaleString("en-US") : (v === "n/a" ? "n/a" : "–");
+  const months = (v) => isNum(v) ? v.toFixed(1) : (v === "n/a" ? "n/a" : "–");
+  const esc = (t) => String(t).replace(/[&<>"]/g, (ch) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[ch]));
+  const ind = (n) => n === "N/A" ? "Not classified (no NAICS code)" : n;
+  const dir = (d) => !isNum(d) ? "" : d < 0 ? "below SBA" : d > 0 ? "above SBA" : "";
+  const charts = {};
+  const PY = P.partial_year || null;                       // reporting year that is a partial vintage (e.g. 2026*)
+  const yl = (v) => PY && (v === PY.year || v === String(PY.year)) ? PY.label : v;
+  const pyNote = () => PY ? " " + PY.note : "";
+  function ageCaveat() {                                    // one line, reused wherever overall or industry rates compare
+    const Z = P.seasoning;
+    if (!Z || !Z.vintages.length) return "";
+    const r = Z.bands[Z.bands.length - 1];
+    return `Not age-adjusted: ${pct(r.bank_share)} of the bank's original amount was disbursed ${Z.recent_from}–${yl(Z.recent_to)}, ` +
+      `against ${pct(r.sba_share)} of the SBA benchmark's; newer loans have had less time to default. See portfolio age on Executive Portfolio.`;
+  }
+  const NOTES = P.source_notes || [];
+  const SUF = I.groups.total.sufficiency;
+
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+  Chart.defaults.color = MUTED;
+  function chart(id, type, labels, datasets, opt) {
+    if (charts[id]) charts[id].destroy();
+    const fmt = (opt && opt.fmt) || money;
+    labels = labels.map(yl);
+    charts[id] = new Chart(document.getElementById(id), {type, data: {labels, datasets}, options: Object.assign({
+      responsive: true, maintainAspectRatio: false, animation: false, interaction: {mode: "index", intersect: false},
+      plugins: {legend: {display: datasets.length > 1, position: "top", align: "start", labels: {boxWidth: 10, boxHeight: 10, color: INK}},
+        tooltip: {callbacks: {label: (ctx) => {
+          const v = ctx.raw, extra = ctx.dataset.extra ? ctx.dataset.extra[ctx.dataIndex] : "";
+          return `${ctx.dataset.label}: ${fmt(v)}${fmt === money && isNum(v) ? " (" + exact(v) + ")" : ""}${extra ? " · " + extra : ""}`;
+        }}}},
+      scales: {x: {grid: {display: false}, ticks: {color: MUTED, maxRotation: 0, autoSkip: true}},
+               y: {grid: {color: GRID}, border: {display: false}, ticks: {color: MUTED, callback: (v) => fmt(v)}, beginAtZero: true}}
+    }, opt && opt.options || {})});
+  }
+  const bar = (label, data, color, extra) => ({label, data, backgroundColor: color, borderRadius: 4, maxBarThickness: 26, extra});
+  const line = (label, data, color, dashed, extra) => ({label, data, borderColor: color, backgroundColor: color, borderWidth: 2,
+    pointRadius: 2, pointHoverRadius: 5, borderDash: dashed ? [6, 4] : [], tension: 0, extra});
+  const num = (v) => isNum(v) ? v : null;
+  function table(head, rows, cls) {
+    return `<table class="data ${cls || ""}"><thead><tr>${head.map((h, i) => `<th class="${i ? "num" : ""}">${h}</th>`).join("")}</tr></thead><tbody>` +
+      rows.map((r) => `<tr class="${r.cls || ""}">${r.cells.map((x, i) => `<td class="${i ? "num" : ""}">${x}</td>`).join("")}</tr>`).join("") + "</tbody></table>";
+  }
+
+  // ------------------------------------------------------------ Executive Portfolio
+  function executive() {
+    const g = I.groups.total;
+    document.getElementById("obs").innerHTML = '<h2>Key observations</h2><ul class="obs-list">' + g.lines.map((l) =>
+      `<li class="k-${l.kind}"><span class="ol">${esc(l.label || "")}</span><span>${esc(l.text)}</span></li>`).join("") + "</ul>";
+    const full = B.full.total.total, fy = B.fy2000.total.total, all = BM.total.total, std = BM.above.total;
+    const pre = g.pre_fy2000_loans || 0, cmp = P.comparison.total, comparable = fy.loans > 0;
+    const ROWS = [["# of Loans Orig.", "loans", int], ["Orig. Bal. ($)", "orig", money], ["Average Balance ($)", "avg", money],
+      ["Est. # of Loans Outstanding", "active", int], ["Est. Orig. Bal. of loans Outstanding ($)", "active_orig", money],
+      ["Avg. Loan Age (mths)", "age", months], ["# of Loans Defaulted", "chgoff", int],
+      ["% Cum. Defaulted", "cum_def", pct, "hl"], ["% Loss Severity †", "severity", pct], ["% Cum. Loss †", "cum_loss", pct],
+      ["PURCH(NOT C/O) (%)", "purch_pct", pct]];
+    const bankHead = pre ? "Bank<br><small>full history</small>" : "Bank<br><small>full history = FY2000 onward</small>";
+    const head = ["Measure", bankHead].concat(pre ? ["Bank<br><small>FY2000 onward</small>"] : [])
+      .concat(["All SBA 7(a)<br><small>industry-matched</small>", `Standard<br><small>&gt; ${T}</small>`, "Bank vs All SBA<br><small>FY2000 onward basis</small>"]);
+    const benchVal = (row, k) => k === "age" ? "–" : (row.loans ? row[k] : null);
+    const rows = ROWS.map(([label, k, f, cls]) => {
+      const cells = [label, full.loans ? f(full[k]) : "No loans"];
+      if (pre) cells.push(fy.loans ? f(fy[k]) : "No loans");
+      cells.push(k === "age" ? "–" : f(benchVal(all, k)), k === "age" ? "–" : f(benchVal(std, k)));
+      const d = cmp[k] ? cmp[k].diff : null;
+      cells.push(["cum_def", "severity", "cum_loss"].includes(k) ? (comparable ? `${pp(d)} <span class="dir">${dir(d)}</span>` : "Not comparable") : "");
+      return {cells, cls};
+    });
+    document.getElementById("scorecard").innerHTML = table(head, rows, "score");
+    seasoningPanel();
+    document.getElementById("tiles-caveat").textContent = ageCaveat();
+    document.getElementById("src-note").innerHTML = NOTES.map((n) => `<strong>${esc(n.title)}.</strong> ${esc(n.short)} Details: Methodology &amp; Reports.`).join("<br>");
+    document.getElementById("src-note").hidden = !NOTES.length;
+    document.getElementById("score-notes").innerHTML =
+      "† " + esc(I.severity_note) + " Est. outstanding figures are original amounts, not current principal." +
+      (pre ? ` The bank's full history includes ${int(pre)} loan(s) approved before FY2000; differences use loans approved FY2000 onward.` : "") +
+      (!comparable ? " The bank has no loans approved FY2000 onward, so no benchmark difference is shown." : "");
+    if (LEGACY) document.getElementById("dtiles").innerHTML = '<p class="muted">Saved with an earlier dashboard version: benchmark group default rates were not stored with this analysis. Start a new analysis for the same criteria to see them.</p>';
+    else document.getElementById("dtiles").innerHTML = P.default_line.map((x) => {
+      const bank = x.bank_loans === null ? '<div class="t-bank muted">Bank: not split by loan term</div>'
+        : x.bank_loans ? `<div class="t-bank">Bank ${pct(x.bank_cum_def)} <span class="muted">(${int(x.bank_loans)} loans)</span></div>`
+        : '<div class="t-bank muted">Bank: no matching loans</div>';
+      const d = isNum(x.diff) ? `<div class="t-diff">${pp(x.diff)} ${dir(x.diff)}</div>` : "";
+      return `<div class="tile"><div class="t-name">${esc(x.name)}</div><div class="t-val">${x.sba_loans ? pct(x.sba_cum_def) : "n/a"}</div>
+        <div class="muted small">SBA, ${int(x.sba_loans)} loans</div>${bank}${d}</div>`;
+    }).join("");
+  }
+
+  function seasoningPanel() {
+    const Z = P.seasoning, card = document.getElementById("like-card"), call = document.getElementById("age-callout");
+    if (!Z) { card.hidden = true; call.innerHTML = '<span class="muted">Portfolio age context was not stored with this saved analysis (earlier dashboard version).</span>'; return; }
+    const r = Z.bands[Z.bands.length - 1];
+    const loansTxt = (n) => `${int(n)} loan${n === 1 ? "" : "s"}`;
+    if (!Z.vintages.length) {
+      card.hidden = true;
+      call.innerHTML = `<strong>No portfolio-age comparison is possible.</strong> All of the bank's loans were disbursed before ${Z.first_benchmark_vintage}, ` +
+        "which the SBA benchmark does not cover. FalconBridge's benchmark figures above are shown unchanged for reference.";
+      return;
+    }
+    card.hidden = false;
+    const e = Z.bands[0];
+    call.innerHTML = `<strong>Read the % Cum. Defaulted comparison with portfolio age in mind.</strong> Disbursed in ${Z.recent_from}–${yl(Z.recent_to)}: ` +
+      `bank ${pct(r.bank_share)} of original gross amount, SBA benchmark ${pct(r.sba_share)}. Disbursed ${e.to} or earlier: bank ${pct(e.bank_share)}, ` +
+      `SBA benchmark ${pct(e.sba_share)}. Cumulative default rates depend on how long loans have been outstanding and on conditions in each vintage, ` +
+      `so portfolios of different ages are not directly comparable. FalconBridge's benchmark figures above are unchanged; compare vintage by vintage below.` + pyNote();
+    document.getElementById("t-age").innerHTML = table(["Disbursement year", "Bank", "SBA benchmark"],
+      Z.bands.map((b) => ({cells: [esc(b.label), `${minibar(b.bank_share)} ${pct(b.bank_share)} <span class="muted">(${loansTxt(b.bank_loans)})</span>`,
+        `${minibar(b.sba_share)} ${pct(b.sba_share)} <span class="muted">(${loansTxt(b.sba_loans)})</span>`]}))
+      .concat(Z.bank_pre_benchmark_loans ? [{cells: [`Disbursed before ${Z.first_benchmark_vintage}`, `${pct(Z.bank_pre_benchmark_share)} <span class="muted">(${loansTxt(Z.bank_pre_benchmark_loans)})</span>`, "not covered"]}] : []), "agetab");
+    document.getElementById("comparability").innerHTML = [
+      `Average age of the bank's estimated outstanding loans: ${isNum(Z.bank_age_months) ? Z.bank_age_months.toFixed(1) + " months" : "n/a"} (${int(Z.bank_outstanding_loans)} of ${int(Z.bank_loans)} loans estimated outstanding).`,
+      `Average loan: bank ${money(Z.bank_avg)}, SBA benchmark ${money(Z.sba_avg)}. ${pct(Z.bank_share_above)} of the bank's original amount is above ${T} (bank threshold split, an enhancement); the Standard column compares like-sized SBA loans.`,
+      "The benchmark's totals weight industries by SBA's own volumes within this bank's industries, not by the bank's mix.",
+      "Defaulted and outstanding loans are status-based for the bank and date-based for the benchmark (see Methodology).",
+      "The overall rates are not adjusted for any of these differences. A vintage- or mix-adjusted benchmark would be a new method and is not used without FalconBridge's approval."
+    ].map((t) => `<li>${t}</li>`).join("");
+    const V = Z.vintages, wrap = document.getElementById("age-chart-wrap");
+    wrap.hidden = V.length < 3;
+    document.getElementById("age-chart-note").textContent = V.length < 3 ? `Vintage chart not shown: the bank has loans in ${V.length} benchmark vintage(s).`
+      : "Points with fewer than 10 bank loans are small samples (hollow markers). SBA: industry-matched All SBA 7(a), FalconBridge PerformanceSummary vintage rows." + pyNote();
+    if (V.length >= 3) {                                   // every year in the range, so gaps in lending stay visible
+      const byY = Object.fromEntries(V.map((v) => [v.year, v])), sbaY = Object.fromEntries(BM.total.vintage.map((x) => [x.year, x]));
+      const yrs = []; for (let y = V[0].year; y <= V[V.length - 1].year; y++) yrs.push(y);
+      const at = (y) => byY[y] || null;
+      const b = line(C.bank_name, yrs.map((y) => at(y) ? num(at(y).bank_cum_def) : null), BLUE, false,
+        yrs.map((y) => at(y) ? int(at(y).bank_loans) + " bank loans" + (at(y).small_sample ? " (small sample)" : "") : "no bank loans"));
+      b.spanGaps = false;
+      b.pointRadius = yrs.map((y) => at(y) ? (at(y).small_sample ? 3 : 4) : 0);
+      b.pointBackgroundColor = yrs.map((y) => at(y) && at(y).small_sample ? "#ffffff" : BLUE); b.pointBorderColor = BLUE;
+      chart("c-age", "line", yrs, [b, line("SBA benchmark (All SBA 7(a))", yrs.map((y) => sbaY[y] && sbaY[y].loans ? num(sbaY[y].cum_def) : null), GREY, true,
+        yrs.map((y) => sbaY[y] ? int(sbaY[y].loans) + " SBA loans" : ""))], {fmt: pct});
+    }
+    document.getElementById("t-age-v").innerHTML = table(["Vintage", "Bank # of Loans", "Bank Orig. Bal.", "Bank % Cum. Defaulted", "SBA # of Loans", "SBA % Cum. Defaulted"],
+      V.map((v) => ({cells: [yl(v.year) + (v.small_sample ? ' <span class="tag-s">small sample</span>' : ""), int(v.bank_loans), money(v.bank_orig), pct(v.bank_cum_def), int(v.sba_loans), pct(v.sba_cum_def)]})));
+  }
+  const minibar = (v) => isNum(v) ? `<span class="minibar"><span style="width:${Math.max(0, Math.min(100, v * 100)).toFixed(1)}%"></span></span>` : "";
+
+  // ------------------------------------------------------------ Portfolio Analysis
+  function analysis() {
+    document.querySelectorAll(".subnav button").forEach((b) => b.classList.toggle("on", b.dataset.sub === sub));
+    document.querySelectorAll(".sub").forEach((s) => s.hidden = s.id !== "sub-" + sub);
+    if (sub === "vintages") vintages(); else if (sub === "industries") industries(); else subprograms();
+  }
+  function vintages() {
+    const bv = B.full.total.vintage, sv = Object.fromEntries(BM.total.vintage.map((r) => [r.year, r]));
+    const shown = bv.filter((r) => r.loans > 0 && r.year >= 1999), early = bv.filter((r) => r.loans > 0 && r.year < 1999);
+    const lim = document.getElementById("v-limit");
+    document.getElementById("v-chart-card").hidden = !SUF.trend || shown.length < 3;
+    lim.hidden = !document.getElementById("v-chart-card").hidden;
+    lim.textContent = `Vintage trend not shown: the bank has loans in ${SUF.vintages} vintage(s)` + (shown.length < SUF.vintages ? `, ${SUF.vintages - shown.length} of them before 1999` : "") + ".";
+    if (!document.getElementById("v-chart-card").hidden) {
+      const yrs = BM.total.vintage.map((r) => r.year);
+      const by = Object.fromEntries(bv.map((r) => [r.year, r]));
+      chart("c-vint", "line", yrs, [
+        line(C.bank_name, yrs.map((y) => by[y] && by[y].loans ? num(by[y].cum_def) : null), BLUE, false, yrs.map((y) => by[y] && by[y].loans ? int(by[y].loans) + " loans" : "no bank loans")),
+        line("All SBA 7(a), industry-matched", BM.total.vintage.map((r) => r.loans ? num(r.cum_def) : null), GREY, true, BM.total.vintage.map((r) => int(r.loans) + " SBA loans"))], {fmt: pct});
+    }
+    const rows = shown.map((r) => { const s = sv[r.year] || {};
+      return {cells: [yl(r.year), int(r.loans), money(r.orig), int(r.active), int(r.chgoff), pct(r.cum_def), pct(r.cum_loss),
+        s.loans ? int(s.loans) : "–", s.loans ? pct(s.cum_def) : "–", s.loans ? pct(s.cum_loss) : "–"]}; });
+    document.getElementById("t-vint").innerHTML = rows.length ? table(["Vintage", "# of Loans Orig.", "Orig. Bal.", "Est. # Outstanding", "# Defaulted",
+      "% Cum. Defaulted", "% Cum. Loss", "SBA # of Loans", "SBA % Cum. Defaulted", "SBA % Cum. Loss"], rows) : '<p class="muted">No bank loans disbursed 1999 or later.</p>';
+    document.getElementById("v-note").textContent = (early.length ? `${early.reduce((a, r) => a + r.loans, 0)} bank loan(s) disbursed before 1999 are in the full-history totals; FalconBridge's PerformanceSummary hides those vintage rows. ` : "") +
+      "SBA vintages cover SBA loans in this bank's industries (FalconBridge's industry-matched method, PRELIMINARY)." + pyNote();
+  }
+  function industries() {
+    const all = B.full.total.industry.filter((r) => r.loans > 0).sort((a, b) => b.orig - a.orig);
+    const sec = Object.fromEntries(BM.total.sector.map((r) => [r.name, r]));
+    document.getElementById("i-chart-card").hidden = !SUF.industry_chart;
+    if (SUF.industry_chart) {
+      const top = all.slice(0, 10), short = (t) => t.length > 52 ? t.slice(0, 50) + "…" : t;
+      chart("c-ind", "bar", top.map((r) => short(ind(r.name))), [bar("Orig. Bal.", top.map((r) => r.orig), BLUE, top.map((r) => pct(r.share) + " of total · " + int(r.loans) + " loans"))],
+        {options: {indexAxis: "y", scales: {x: {grid: {color: GRID}, ticks: {callback: (v) => money(v)}, beginAtZero: true}, y: {grid: {display: false}, ticks: {color: INK}}}}});
+    }
+    const rows = all.map((r) => { const s = sec[r.name] || {};
+      return {cells: [esc(ind(r.name)) + (r.loans < 10 ? ' <span class="tag-s">small sample</span>' : ""), r.naics || "–", pct(r.share), int(r.loans), money(r.orig),
+        int(r.active), pct(r.cum_def), pct(r.cum_loss), s.loans ? int(s.loans) : "No SBA loans", s.loans ? pct(s.cum_def) : "–", s.loans ? pct(s.cum_loss) : "–"]}; });
+    const headI = ["Industry (NAICS description)", "NAICS", "% of Total Orig.", "# of Loans", "Orig. Bal.", "Est. # Outstanding", "% Cum. Defaulted", "% Cum. Loss", "SBA # of Loans", "SBA % Cum. Defaulted", "SBA % Cum. Loss"];
+    const first = rows.slice(0, 15), rest = rows.slice(15);
+    document.getElementById("t-ind").innerHTML = table(headI, first) + (rest.length ? `<details><summary>Show all ${rows.length} industries</summary>${table(headI, rest)}</details>` : "") +
+      '<p class="fine">Bank: full history. SBA: every SBA loan in the industry, FY2000 onward (PRELIMINARY). "Small sample": fewer than 10 bank loans.</p>' +
+      (ageCaveat() ? `<p class="fine caveat">${esc(ageCaveat())}</p>` : "");
+  }
+  function subprograms() {
+    const rows = B.full.total.subprogram.filter((r) => r.loans > 0).map((r) => ({cells: [esc(r.label || r.name), int(r.loans), money(r.orig),
+      int(r.active), int(r.chgoff), pct(r.cum_def), r.chgoff ? pct(r.severity) : "–", pct(r.cum_loss)]}));
+    document.getElementById("t-sub").innerHTML = table(["Subprogram", "# of Loans Orig.", "Orig. Bal.", "Est. # Outstanding",
+      "# Defaulted", "% Cum. Defaulted", "% Loss Severity", "% Cum. Loss"], rows);
+  }
+
+  // ------------------------------------------------------------ Benchmark Analysis
+  function benchmark() {
+    const fy = B.fy2000.total.total, pop = P.benchmark_population, pre = I.groups.total.pre_fy2000_loans || 0;
+    document.getElementById("basis").innerHTML = `<strong>Comparison basis:</strong> ${esc(C.bank_name)} loans approved FY2000 onward (${int(fy.loans)} loans` +
+      (pre ? `; ${int(pre)} earlier loans excluded` : "") + `) vs the industry-matched SBA 7(a) benchmark: ${int(BM.total.total.loans)} SBA loans in this bank's ` +
+      `${int(pop.industries)} industries, approved FY2000 onward (of ${int(pop.loans)} SBA 7(a) loans in the benchmark population). <span class="badge">PRELIMINARY</span>` +
+      NOTES.map((n) => `<br><span class="src-inline"><strong>${esc(n.title)}.</strong> ${esc(n.short)}</span>`).join("");
+    const lim = document.getElementById("b-limit"), body = document.getElementById("b-body");
+    lim.hidden = fy.loans > 0; body.hidden = !(fy.loans > 0);
+    lim.textContent = "Benchmark comparison not available: the bank has no loans approved FY2000 or later, the period covered by the SBA benchmark. Benchmark figures are listed under Detailed benchmark measures.";
+    if (fy.loans > 0) {
+      if (LEGACY) document.getElementById("t-groups").innerHTML = '<p class="muted">Not stored with this saved analysis (earlier dashboard version).</p>'; else
+      document.getElementById("t-groups").innerHTML = table(["SBA benchmark group", "SBA # of Loans", "SBA % Cum. Defaulted", "Bank # of Loans", "Bank % Cum. Defaulted", "Difference"],
+        P.default_line.map((x) => ({cells: [esc(x.name), int(x.sba_loans), x.sba_loans ? pct(x.sba_cum_def) : "n/a",
+          x.bank_loans === null ? "–" : int(x.bank_loans), x.bank_loans === null ? "not split by term" : x.bank_loans ? pct(x.bank_cum_def) : "No matching loans",
+          isNum(x.diff) ? `${pp(x.diff)} <span class="dir">${dir(x.diff)}</span>` : "–"], cls: x.group === "total" ? "hl" : ""})), "groups") +
+        `<p class="fine">Bank Standard / Small rates use the bank threshold split at ${T} (enhancement). Differences are arithmetic differences of the rates, not tests of statistical significance.` +
+        (fy.loans < 30 ? " Limited data: fewer than 30 bank loans." : "") + "</p>" +
+        (ageCaveat() ? `<p class="fine caveat">${esc(ageCaveat())}</p>` : "");
+      document.querySelectorAll("#bgsel button").forEach((b) => b.classList.toggle("on", b.dataset.g === bg));
+      const bv = Object.fromEntries(B.fy2000[bg].vintage.map((r) => [r.year, r])), sv = BM[bg].vintage, yrs = sv.map((r) => r.year);
+      const enough = I.groups[bg].sufficiency.fy2000_trend;
+      document.getElementById("b-chart-wrap").hidden = !enough;
+      document.getElementById("b-chart-note").textContent = enough ? (bg === "total" ? "" : "Bank series uses the bank threshold split (enhancement).") + pyNote() : "Vintage trend not shown: fewer than 3 vintages with bank loans in this group.";
+      if (enough) chart("c-bvint", "line", yrs, [
+        line(C.bank_name + " (FY2000 onward)", yrs.map((y) => bv[y] && bv[y].loans ? num(bv[y].cum_def) : null), BLUE, false, yrs.map((y) => bv[y] && bv[y].loans ? int(bv[y].loans) + " loans" : "no bank loans")),
+        line(BM[bg].name === "All SBA 7(a)" ? "All SBA 7(a)" : `SBA ${BM[bg].name}`, sv.map((r) => r.loans ? num(r.cum_def) : null), GREY, true, sv.map((r) => int(r.loans) + " SBA loans"))], {fmt: pct});
+      const rowsI = P.industry_comparison[bg].slice(0, 15);
+      document.getElementById("bi-sub").textContent = `${BM[bg].name === "All SBA 7(a)" ? "All loans" : BM[bg].name} · bank FY2000 onward vs every SBA loan in the industry · largest 15 by bank amount`;
+      document.getElementById("t-bind").innerHTML = rowsI.length ? table(["Industry", "Bank # of Loans", "Bank % Cum. Defaulted", "SBA % Cum. Defaulted", "Difference", "Bank % Cum. Loss", "SBA % Cum. Loss"],
+        rowsI.map((r) => ({cells: [esc(ind(r.name)) + (r.loans < 10 ? ' <span class="tag-s">small sample</span>' : ""), int(r.loans), pct(r.bank_cum_def),
+          r.sba_loans ? pct(r.sba_cum_def) : "No SBA loans", r.loans < 10 ? `<span class="muted">${pp(r.diff_cum_def)}</span>` : `${pp(r.diff_cum_def)} <span class="dir">${dir(r.diff_cum_def)}</span>`,
+          pct(r.bank_cum_loss), r.sba_loans ? pct(r.sba_cum_loss) : "–"]}))) + (ageCaveat() ? `<p class="fine caveat">${esc(ageCaveat())} Industry rates mix vintages in the same way.</p>` : "")
+        : '<p class="muted">No matching loans in this group.</p>';
+    }
+    const G = [["total", "All SBA 7(a)"], ["above", "Standard (> " + T + ")"], ["below", "Small (≤ " + T + ")"], ["noncre", "Non-CRE"], ["cre", "CRE"]];
+    const M = [["# of Loans Orig.", "loans", int], ["Orig. Bal. ($)", "orig", money], ["Average Balance ($)", "avg", money], ["Est. # of Loans Outstanding", "active", int],
+      ["Est. Orig. Bal. of loans Outstanding ($)", "active_orig", money], ["# of Loans Defaulted", "chgoff", int], ["% Cum. Defaulted", "cum_def", pct, "hl"],
+      ["% Loss Severity †", "severity", pct], ["% Cum. Loss †", "cum_loss", pct], ["PURCH(NOT C/O) (%)", "purch_pct", pct]];
+    document.getElementById("t-bdetail").innerHTML = table(["SBA benchmark, FY2000 onward"].concat(G.map((x) => x[1])),
+      M.map(([l, k, f, cls]) => ({cells: [l].concat(G.map(([g]) => BM[g].total.loans ? f(BM[g].total[k]) : "No loans")), cls})));
+    document.getElementById("bd-note").textContent = "† " + I.severity_note;
+    document.querySelectorAll("#hsel button").forEach((b) => b.classList.toggle("on", b.dataset.h === hist));
+    const SM = [["# of Loans Orig.", "loans", int], ["Orig. Bal. ($)", "orig", money], ["Est. # of Loans Outstanding", "active", int],
+      ["Est. Orig. Bal. of loans Outstanding ($)", "active_orig", money], ["# of Loans Defaulted", "chgoff", int], ["Gross charge-offs ($)", "chgoff_amt", money],
+      ["% Cum. Defaulted", "cum_def", pct, "hl"], ["% Loss Severity", "severity", pct], ["% Cum. Loss", "cum_loss", pct]];
+    const HG = [["above", "Above " + T], ["below", "At or below " + T], ["total", "All loans"]];
+    document.getElementById("t-split").innerHTML = table([hist === "full" ? "Bank, full history" : "Bank, FY2000 onward"].concat(HG.map((x) => x[1])),
+      SM.map(([l, k, f, cls]) => ({cells: [l].concat(HG.map(([g]) => B[hist][g].total.loans ? f(B[hist][g].total[k]) : "No matching loans")), cls})));
+  }
+
+  // ------------------------------------------------------------ Methodology & Reports
+  function reports() {
+    document.getElementById("disc").innerHTML = [
+      "<strong>% Cum. Defaulted</strong> is the primary comparable measure: original amount of defaulted loans ÷ original gross amount, on the same basis for bank and benchmark.",
+      ...NOTES.map((n) => `<strong>${esc(n.title)}.</strong> ${esc(n.detail)}`),
+      ...(PY ? [esc(PY.note.replace(/^\* /, "Partial year: "))] : []),
+      "† " + esc(I.severity_note),
+      "Bank portfolio measures use the bank's full history; benchmark comparisons use the bank's loans approved FY2000 onward, the benchmark's population.",
+      `Threshold ${T}: Standard / above = GrossApproval rounded to whole dollars greater than the threshold; Small / at or below = the rest. The same threshold is used in the Excel workbook.`,
+      "The bank loan size split is an enhancement beyond FalconBridge's original workbook; FalconBridge applies the threshold to the benchmark only.",
+      "SBA benchmark: PRELIMINARY industry-matched benchmark (FalconBridge's SBA Orig_v2 method), subject to FalconBridge's confirmation.",
+      "Excluded: LIQUID (%) (template formula flagged; no LIQUID status in this release) and template cells flagged for review in Benchmark_Notes.",
+      "Est. # of Loans Outstanding and Est. Orig. Bal. of loans Outstanding are original amounts, not current principal.",
+    ].concat(I.rules.map(esc)).map((t) => `<li>${t}</li>`).join("");
+    const secs = {};
+    P.glossary.forEach((g) => { (secs[g.section] = secs[g.section] || []).push(g); });
+    document.getElementById("gloss").innerHTML = LEGACY ? '<p class="muted">Not stored with this saved analysis; see the Glossary sheet of its Excel workbook.</p>' : Object.entries(secs).map(([s, rows], i) =>
+      `<details ${i === 1 ? "open" : ""}><summary>${esc(s)}</summary><table class="small defs"><tbody>${rows.map((g) =>
+        `<tr><th>${esc(g.field)}</th><td>${esc(g.definition)}</td></tr>`).join("")}</tbody></table></details>`).join("");
+  }
+  function supplementary() {
+    const vt = B.full.total.vintage.filter((r) => r.loans > 0), notes = [];
+    document.getElementById("s1").hidden = vt.length < 2;
+    if (vt.length >= 2) chart("c-orig", "bar", vt.map((r) => r.year), [bar("Orig. Bal.", vt.map((r) => r.orig), BLUE, vt.map((r) => int(r.loans) + " loans"))]);
+    const cy = P.chgoff_by_year.total.years;
+    document.getElementById("s2").hidden = cy.length < 1;
+    if (cy.length) chart("c-chg", "bar", cy.map((r) => r.year), [bar("Gross charge-offs", cy.map((r) => r.amount), ORANGE, cy.map((r) => int(r.loans) + " loans"))]);
+    else notes.push("No charge-offs to chart.");
+    const st = P.status.total;
+    chart("c-status", "bar", st.map((s) => s.status), [bar("Orig. Bal.", st.map((s) => s.orig), AQUA, st.map((s) => int(s.loans) + " loans"))],
+      {options: {indexAxis: "y", scales: {x: {grid: {color: GRID}, ticks: {callback: (v) => money(v)}, beginAtZero: true}, y: {grid: {display: false}, ticks: {color: INK}}}}});
+    document.getElementById("s4").hidden = vt.length < 3;
+    if (vt.length >= 3) chart("c-pif", "line", vt.map((r) => r.year), [line("% paid in full", vt.map((r) => num(r.pif_pct)), BLUE, false, vt.map((r) => int(r.loans) + " loans"))], {fmt: pct});
+    if (P.chgoff_by_year.total.undated) notes.push(`${P.chgoff_by_year.total.undated} defaulted loan(s) have no ChargeOffDate and are not shown by year.`);
+    document.getElementById("s-note").textContent = notes.join(" ") + pyNote();
+  }
+
+  // ------------------------------------------------------------ navigation
+  const TABS = ["executive", "analysis", "benchmark", "reports"];
+  if (!TABS.includes(tab)) tab = "executive";
+  function render() {
+    document.querySelectorAll(".tabs button[data-tab]").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
+    document.querySelectorAll(".tab").forEach((t) => t.hidden = t.id !== "tab-" + tab);
+    document.querySelectorAll(".keep-tab").forEach((i) => i.value = tab);
+    if (tab === "executive") executive(); else if (tab === "analysis") analysis(); else if (tab === "benchmark") benchmark(); else reports();
+    const u = new URL(location.href); u.searchParams.set("tab", tab); u.searchParams.delete("view"); history.replaceState(null, "", u);
+  }
+  document.querySelectorAll(".tabs button[data-tab]").forEach((b) => b.addEventListener("click", () => { tab = b.dataset.tab; render(); }));
+  document.querySelectorAll(".subnav button").forEach((b) => b.addEventListener("click", () => { sub = b.dataset.sub; analysis(); }));
+  document.querySelectorAll("#bgsel button").forEach((b) => b.addEventListener("click", () => { bg = b.dataset.g; benchmark(); }));
+  document.querySelectorAll("#hsel button").forEach((b) => b.addEventListener("click", () => { hist = b.dataset.h; benchmark(); }));
+  document.querySelectorAll("details.card").forEach((d) => d.addEventListener("toggle", () => { if (d.open && d.querySelector("#c-orig")) supplementary(); }));
+  render();
+})();
+</script>
+{% endblock %}

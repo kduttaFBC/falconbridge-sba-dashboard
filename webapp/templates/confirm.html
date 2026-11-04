@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% macro lenders(rows) %}
+<table class="small"><thead><tr><th>FDIC cert</th><th>SBA LocationID</th><th>City</th><th>Street</th><th class="num">Records</th><th class="num">Eligible loans</th></tr></thead><tbody>
+{% for x in rows %}<tr><td>{{ x.cert or "(none)" }}</td><td>{{ x.location_id }}</td><td>{{ x.city }}</td><td>{{ x.street }}</td><td class="num">{{ "{:,}".format(x.records) }}</td><td class="num">{{ "{:,}".format(x.eligible) }}</td></tr>{% endfor %}
+</tbody></table>
+{% endmacro %}
+{% block content %}
+<h1>Confirm the lender</h1>
+<p><strong>{{ name }}, {{ state }}</strong> &middot; reporting period {{ period[:4] }}-{{ period[4:6] }}-{{ period[6:] }}</p>
+{% if error %}
+  <div class="err"><strong>Not generated - the lender identity is not unique.</strong><pre>{{ error }}</pre></div>
+  {% if choose_cert %}
+    <p>Choose the FDIC certificate of the bank you mean:</p>
+    <ul>{% for c, link in cert_links.items() %}<li><a class="button" href="{{ link }}">FDIC certificate {{ c }}</a></li>{% endfor %}</ul>
+  {% elif entry.lenders %}
+    <form method="get" action="/confirm">
+      <input type="hidden" name="period" value="{{ period }}"><input type="hidden" name="name" value="{{ name }}">
+      <input type="hidden" name="state" value="{{ state }}"><input type="hidden" name="cert" value="{{ cert }}">
+      <p>Select the SBA lender IDs (LocationID) to include:</p>
+      {% for x in entry.lenders %}{% if not cert or x.cert == cert %}
+        <label class="check"><input type="checkbox" name="loc" value="{{ x.location_id }}"> LocationID {{ x.location_id }} &middot; FDIC {{ x.cert or "(none)" }} &middot; {{ x.city }} &middot; {{ "{:,}".format(x.eligible) }} eligible loans</label>
+      {% endif %}{% endfor %}
+      <button type="submit">Check identity</button>
+    </form>
+  {% endif %}
+  <p><a href="/?{{ {'period': period, 'q': name} | urlencode }}">Back to search</a></p>
+{% else %}
+  <h2>Lender identity evidence (SBA FOIA)</h2>
+  <dl class="facts">
+    <dt>Bank name / state</dt><dd>{{ sel.bank_name }}, {{ sel.bank_state }}</dd>
+    <dt>FDIC certificate</dt><dd>{{ sel.cert or "none published" }}</dd>
+    <dt>SBA lender IDs included</dt><dd>{{ sel.location_ids | join(", ") }}</dd>
+    <dt>Resolution</dt><dd>{{ resolution }}</dd>
+  </dl>
+  <h3>Included</h3>
+  {{ lenders(sel.selected) }}
+  {% if sel.excluded %}<h3>Excluded - other lenders with the same name and state</h3>{{ lenders(sel.excluded) }}{% endif %}
+  <form method="get" action="/dashboard" class="go card">
+    <input type="hidden" name="period" value="{{ period }}"><input type="hidden" name="name" value="{{ name }}">
+    <input type="hidden" name="state" value="{{ state }}"><input type="hidden" name="cert" value="{{ cert }}">
+    {% for l in loc %}<input type="hidden" name="loc" value="{{ l }}">{% endfor %}
+    <label>Original loan balance threshold ($)
+      <input name="threshold" id="threshold" value="{{ threshold }}" inputmode="numeric"></label>
+    <button type="submit" class="primary">Open dashboard</button>
+    <span class="muted">Bank Overview, Portfolio Performance and Industry Comparison for this threshold.</span>
+  </form>
+  <form method="post" action="/jobs" class="go">
+    <input type="hidden" name="token" value="{{ token }}">
+    <input type="hidden" name="period" value="{{ period }}"><input type="hidden" name="name" value="{{ name }}">
+    <input type="hidden" name="state" value="{{ state }}"><input type="hidden" name="cert" value="{{ cert }}">
+    {% for l in loc %}<input type="hidden" name="loc" value="{{ l }}">{% endfor %}
+    <input type="hidden" name="threshold" id="threshold-job" value="{{ threshold }}">
+    <button type="submit">Generate preliminary comparison workbook</button>
+    <span class="muted">Excel workbook for the threshold above. About 30-60 seconds; one report is generated at a time.</span>
+  </form>
+  <script>document.getElementById("threshold").addEventListener("input", (e) => { document.getElementById("threshold-job").value = e.target.value; });</script>
+  <p><a href="/?{{ {'period': period, 'q': name} | urlencode }}">This is not the right bank - back to search</a></p>
+{% endif %}
+{% endblock %}
