@@ -21,6 +21,7 @@ from openpyxl.styles import Alignment, Font
 from openpyxl.utils import column_index_from_string as CI, get_column_letter as L
 
 import config as C
+import template_corrections
 
 PS_LAST_COL = CI("CE")
 SECURITIZATION_COLS = range(CI("C"), CI("J") + 1)
@@ -631,6 +632,7 @@ def build_template_copy(out_path, lists, as_of, info_rows, n_rows, log=print, va
     remove_finwise_content(wb, log)
     ps_info = rebuild_performance_summary(wb, lists, as_of, lists["first_approval_fy"], log, bench=bench)
     resize_hidden_tabs(wb, ps_info, log)
+    correction_rows, ps_info["template_corrections"] = template_corrections.apply(wb, log)   # guarded; copy only
     update_glossary(wb, lists["first_approval_fy"], as_of, bench=bool(bench))
     if bench:
         flags = flag_benchmark_cells(wb[C.SH_SUMMARY], ps_info)
@@ -639,7 +641,7 @@ def build_template_copy(out_path, lists, as_of, info_rows, n_rows, log=print, va
         ps_info["benchmark_flags"] = flags
     if foia["AW1"].value != "No":
         raise RuntimeError("Template FOIA!AW1 (maturity filter) is not 'No'; the validation definitions assume it is off.")
-    add_generation_info(wb, info_rows)
+    add_generation_info(wb, list(info_rows) + correction_rows)
     if validation_checks:
         add_validation_sheet(wb, validation_checks(ps_info, lookup_status_map(wb)))
     if bench and bench.get("extra_sheets"):         # appended last, so the existing sheets keep their positions

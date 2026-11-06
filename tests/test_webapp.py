@@ -120,6 +120,28 @@ GI_ADDED = {"Original loan balance threshold", "Threshold_Analysis sheet"}
 # the new sheet's styles change accordingly. Every pre-existing worksheet except Generation_Info stays byte-identical.
 PACKAGE_PARTS = {"docProps/core.xml", "[Content_Types].xml", "xl/workbook.xml", "xl/_rels/workbook.xml.rels",
                  "xl/styles.xml"}
+# Approved template corrections D-1 / D-1c / D-1d (2026-11-05): exactly seven ChgOffs_byNAICs&ChgOffYr Grand Total formulas
+# differ from the validated stage1-1.2 workbooks, and Generation_Info records them.
+CHGOFFS_PART, CHGOFFS = "xl/worksheets/sheet7.xml", "ChgOffs_byNAICs&ChgOffYr"
+D1_CELLS = {"DL2": "=IFERROR(BY2/AK2,0)", "DM2": "=IFERROR(BZ2/AL2,0)", "MV2": '=IFERROR(IC2/GP2,"")',
+            "MW2": '=IFERROR(ID2/GQ2,"")',
+            "DO2": '=SUM(AP2:BZ2)/SUMIFS(FOIA!$O:$O,FOIA!$AR:$AR,"Yes",FOIA!$AO:$AO,"<="&$DM$3,FOIA!$AS:$AS,$A$1)',
+            "DP2": '=SUM(BF2:BZ2)/SUMIFS(FOIA!$O:$O,FOIA!$AR:$AR,"Yes",FOIA!$AO:$AO,">="&2006,FOIA!$AO:$AO,"<="&$DM$3,'
+                   'FOIA!$AS:$AS,$A$1)',
+            "FA2": "=SUM(FA4:FA1331)"}                    # D-1d (approved 2026-11-05): blank in the template
+D1_IDS = {"DO2": "D-1c", "DP2": "D-1c", "FA2": "D-1d"}
+GI_ADDED |= {"Template corrections (FalconBridge template file unchanged)", f"Year-alignment check: {CHGOFFS}"} | {
+    f"Template correction {D1_IDS.get(c, 'D-1')}: {CHGOFFS}!{c}" for c in D1_CELLS}
+
+
+def assert_only_approved_chgoffs_changes(generated, validated):
+    from openpyxl import load_workbook
+    cells = lambda p: {(c.coordinate): c.value for row in load_workbook(p, read_only=False)[CHGOFFS].iter_rows()
+                       for c in row if c.value is not None}
+    g, v = cells(generated), cells(validated)
+    changed = {k for k in set(g) | set(v) if g.get(k) != v.get(k)}
+    assert changed == set(D1_CELLS), sorted(changed)
+    assert all(g[k] == f for k, f in D1_CELLS.items())
 
 
 def _style_lists(xml):
@@ -141,7 +163,9 @@ def assert_equivalent(generated, validated):
     g, v = parts(generated), parts(validated)
     assert sorted(g) == sorted(set(v) | {"xl/worksheets/sheet25.xml"})
     differing = [n for n in v if g[n] != v[n]]
-    assert set(differing) <= PACKAGE_PARTS | {"xl/worksheets/sheet23.xml"}, differing
+    assert set(differing) <= PACKAGE_PARTS | {"xl/worksheets/sheet23.xml", CHGOFFS_PART}, differing
+    if CHGOFFS_PART in differing:
+        assert_only_approved_chgoffs_changes(generated, validated)
     sg, sv = _style_lists(g["xl/styles.xml"]), _style_lists(v["xl/styles.xml"])
     for tag in sv:                                   # existing style ids keep their meaning: old lists are prefixes
         assert sg[tag][:len(sv[tag])] == sv[tag], tag

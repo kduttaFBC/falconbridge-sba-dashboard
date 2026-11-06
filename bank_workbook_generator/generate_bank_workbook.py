@@ -29,7 +29,8 @@ from foia_xml_writer import write_foia_sheet          # noqa: E402
 from template_populator import build_template_copy   # noqa: E402
 from validation import benchmark_checks, build_checks  # noqa: E402
 
-VERSION = "stage1-1.3 (configurable original loan balance threshold; preliminary industry-matched benchmark)"
+VERSION = ("stage1-1.5 (configurable original loan balance threshold; preliminary industry-matched benchmark; "
+           "template corrections D-1/D-1c/D-1d in ChgOffs_byNAICs&ChgOffYr)")
 RESOLUTION = {
     "UNIQUE": "Unique - one lender under this BankName and BankState",
     "RESTRICTED_TO_FDIC_CERT": "Restricted to the selected FDIC certificate; other lenders with the same BankName and "
