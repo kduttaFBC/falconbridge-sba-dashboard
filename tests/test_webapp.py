@@ -592,6 +592,17 @@ def test_preview_gate_protects_every_route(monkeypatch):
     assert client.get("/", headers={**ok, "X-Forwarded-For": "198.51.100.10"}).status_code == 200
 
 
+def test_public_mode_has_no_sign_in_but_keeps_security_headers(monkeypatch):
+    """FBX_AUTH_MODE=public (approved 2026-11-11 for the client demonstration): no credentials needed; every visitor
+    is settings.PUBLIC_USER; security headers and the host check still apply."""
+    monkeypatch.setattr(settings, "AUTH_MODE", "public")
+    r = client.get("/")
+    assert r.status_code == 200 and "WWW-Authenticate" not in r.headers
+    assert r.headers["X-Frame-Options"] == "DENY" and r.headers["Cache-Control"] == "no-store"
+    assert client.get("/analyses").status_code == 200
+    assert client.get("/", headers={"Host": "evil.example"}).status_code == 400
+
+
 def test_server_refuses_public_start_without_preview_credentials():
     import subprocess as sp
     import sys as _sys

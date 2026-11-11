@@ -12,8 +12,10 @@ AUDIT_LOG = APP_DATA_DIR / "audit.log"
 HOST = os.environ.get("FBX_HOST", "127.0.0.1")
 PORT = int(os.environ.get("FBX_PORT", "8000"))
 AUTH_MODE = os.environ.get("FBX_AUTH_MODE", "local")     # "local": single user, loopback only; "preview": named users
+#   "public": NO sign-in (approved by FalconBridge 2026-11-11 for the client demonstration); every visitor is PUBLIC_USER
 PREVIEW_USERS_SPEC = os.environ.get("FBX_PREVIEW_USERS", "")   # preview mode: user:scrypt-hash entries (Render secret)
 LOCAL_USER = "local"
+PUBLIC_USER = "public"
 ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"] + [
     h.strip() for h in os.environ.get("FBX_ALLOWED_HOSTS", "").split(",") if h.strip()]   # e.g. the Render hostname
 JOB_TIMEOUT = int(os.environ.get("FBX_JOB_TIMEOUT", "300"))   # seconds; a generation is stopped after this

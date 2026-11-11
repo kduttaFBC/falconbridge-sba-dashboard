@@ -62,9 +62,11 @@ SECURITY_HEADERS = {"Strict-Transport-Security": "max-age=31536000", "X-Frame-Op
 @app.middleware("http")
 async def preview_gate(request: Request, call_next):
     """Preview mode: every path except /healthz requires a named user's credentials (HTTP Basic over HTTPS)."""
-    if settings.AUTH_MODE != "preview":
+    if settings.AUTH_MODE not in ("preview", "public"):
         return await call_next(request)
-    if request.url.path != "/healthz":
+    if settings.AUTH_MODE == "public":                      # no sign-in (approved 2026-11-11); headers still apply
+        request.state.user = settings.PUBLIC_USER
+    elif request.url.path != "/healthz":
         fwd = request.headers.get("x-forwarded-for", "")
         ip = fwd.split(",")[0].strip() or (request.client.host if request.client else "?")
         if PA.locked(ip):
@@ -89,7 +91,7 @@ def current_user(request: Request):
     and organization system replaces this in a later, approved phase.)"""
     if settings.AUTH_MODE == "local":
         return settings.LOCAL_USER
-    if settings.AUTH_MODE == "preview" and getattr(request.state, "user", None):
+    if settings.AUTH_MODE in ("preview", "public") and getattr(request.state, "user", None):
         return request.state.user
     raise HTTPException(503, "Sign-in is not configured.")
 
