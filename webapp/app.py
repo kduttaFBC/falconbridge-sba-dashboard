@@ -6,6 +6,7 @@ time) -> download; analyses can be saved and reopened. Every figure and workbook
 modules. No Microsoft 365 sign-in, external distribution or hosting in this phase.
 """
 import json
+import re
 import hashlib
 import hmac
 import os
@@ -26,7 +27,13 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from . import analysis as AN
+from intelligence import cleanroom_foia as CR
+
+from . import claims_assessment as CA
+from . import evidence_sections as ES
 from . import generator_bridge as GB
+from . import lending_activity as LA
+from . import presentation as PR
 from . import preview_auth as PA
 from . import saved as SV
 from . import settings
@@ -338,6 +345,128 @@ def open_analysis(request: Request, analysis_id: str, view: str = "", tab: str =
                                       c["threshold"]))
 
 
+# ------------------------------------------------------------------------------------------------------------------
+# Executive / Lender view, Analyst evidence view and Lender claims assessment (local demonstration).
+# All three read the same frozen Saved Analysis through the same evidence pack (webapp/presentation.py); nothing here
+# calculates a financial figure, and nothing is sent to any external service.
+EV_ID = re.compile(r"^EV-[0-9a-f]{24}$")
+
+
+def owned_analysis(request, analysis_id):
+    user = current_user(request)
+    a = SV.load(analysis_id)
+    if a is None:
+        raise HTTPException(404, "Saved analysis not found.")
+    if a["owner"] != user:
+        raise HTTPException(403, "This analysis belongs to another user.")
+    return user, a
+
+
+def _validations(analysis_id):
+    """Stored clean-room validation records of one analysis (integrity-checked; an altered file is refused)."""
+    try:
+        return CR.load_records(str(settings.APP_DATA_DIR), analysis_id)
+    except Exception as e:                                   # noqa: BLE001 - reported, never silently ignored
+        raise HTTPException(409, f"A stored validation record failed its integrity check: {e}")
+
+
+def _switcher(user, current):
+    return [{"id": x["id"], "label": f"{x['criteria']['bank_name']}, {x['criteria']['bank_state']} - "
+             f"{x['criteria']['as_of']} - ${x['criteria']['threshold']:,} - saved {x['created'].replace('T', ' ')[:16]}",
+             "current": x["id"] == current}
+            for x in SV.listing(user)]
+
+
+@app.get("/analyses/{analysis_id}/executive", response_class=HTMLResponse)
+def executive_view(request: Request, analysis_id: str, mode: str = ""):
+    user, a = owned_analysis(request, analysis_id)
+    model = PR.build(a, validations=_validations(a["id"]))
+    audit(user, "executive_view", analysis=a["id"], mode=mode or "standard")
+    if mode == "present":
+        # presentation mode receives ONLY the allow-listed subset; the full model never reaches the template
+        return page(request, "present.html", present=PR.presentation(model))
+    return page(request, "executive.html", m=model, analyses=_switcher(user, a["id"]), section="executive")
+
+
+@app.get("/analyses/{analysis_id}/evidence", response_class=HTMLResponse)
+def evidence_view(request: Request, analysis_id: str, ev: list[str] = Query(default=[])):
+    user, a = owned_analysis(request, analysis_id)
+    vals = _validations(a["id"])
+    model = PR.build(a, validations=vals, lookup=[x for x in ev[:20] if EV_ID.match(x)])
+    model["sections"] = ES.build_sections(model, PR.pack_for(a, vals))        # same pack, regrouped like the dashboard
+    audit(user, "evidence_view", analysis=a["id"])
+    return page(request, "evidence.html", m=model, analyses=_switcher(user, a["id"]), section="evidence")
+
+
+@app.get("/analyses/{analysis_id}/claims", response_class=HTMLResponse)
+def claims_view(request: Request, analysis_id: str, claim: str = "", preset: str = "", metric: str = "",
+                population: str = "", period: str = ""):
+    user, a = owned_analysis(request, analysis_id)
+    vals = _validations(a["id"])
+    model = PR.build(a, validations=vals)
+    presets = dict(CA.PRESETS)
+    text = presets.get(preset, claim)[:500]
+    result = None
+    if text or preset or claim:
+        result = CA.assess(PR.pack_for(a, vals), text, {"metric": metric if metric in CA.METRICS else "",
+                                                  "population": population if population in CA.POPULATIONS else "",
+                                                  "period": period if re.fullmatch(r"\d{4}-\d{2}-\d{2}", period) else ""})
+        audit(user, "claim_assessment", analysis=a["id"], assessment=result["assessment_id"], outcome=result["outcome"])
+    return page(request, "claims.html", m=model, analyses=_switcher(user, a["id"]), section="claims",
+                presets=CA.PRESETS, text=text, result=result,
+                chosen={"metric": metric, "population": population, "period": period})
+
+
+# ------------------------------------------------------------------------------------------------------------------
+# Loan-level drill-down (Phase 1). The loans behind one displayed figure, from the same eligible rows and definitions
+# as the dashboard (webapp/lending_activity.py). Borrower name and street are never returned. Every response states the
+# population and whether the loans reproduce the displayed aggregate.
+def _loans_json(user, period, sel, dim, value, displayed_activity, context):
+    if dim not in LA.DIMENSIONS or not value or len(value) > 300:
+        raise HTTPException(400, "Unknown drill-down selection.")
+    ext, _ = AN.bank_data(period, sel)
+    sm = AN.status_map()
+    data = LA.loan_rows(LA.select(ext["rows"], sm, dim, value), sm)
+    agg = LA.aggregate(displayed_activity, dim, value)
+    checks = LA.reconcile(data["totals"], agg)
+    audit(user, "loan_drilldown", context=context, bank_name=sel["bank_name"], bank_state=sel["bank_state"],
+          dim=dim, value=value, loans=data["totals"]["loans"])
+    return JSONResponse({"dimension": dim, "value": value, "selection": LA.describe(dim, value),
+                         "population": LA.POPULATION, "bank": f"{sel['bank_name']}, {sel['bank_state']}",
+                         "as_of": (displayed_activity or {}).get("as_of", ""), "columns": data["columns"],
+                         "loans": data["loans"], "totals": data["totals"], "displayed": agg,
+                         "reconciles": bool(checks) and all(checks.values()), "checks": checks,
+                         "hidden_fields": list(LA.HIDDEN_FIELDS),
+                         "amounts": "original approval amounts and gross charge-offs; not current balances"})
+
+
+@app.get("/dashboard/loans")
+def dashboard_loans(request: Request, period: str, name: str, state: str, dim: str, value: str, cert: str = "",
+                    loc: list[str] = Query(default=[]), threshold: str = ""):
+    user = current_user(request)
+    valid_period(period)
+    t, terr = AN.parse_threshold(threshold)
+    try:
+        sel = GB.resolve(period, name, state, cert or None, loc or None)
+    except GB.SelectionError:
+        raise HTTPException(400, "Lender identity is ambiguous.")
+    payload = AN.compute(period, sel, GB.GC.BENCHMARK_STANDARD_MIN if terr else t)
+    return _loans_json(user, period, sel, dim, value, payload.get("activity"), "dashboard")
+
+
+@app.get("/analyses/{analysis_id}/loans")
+def analysis_loans(request: Request, analysis_id: str, dim: str, value: str):
+    user, a = owned_analysis(request, analysis_id)
+    c = a["criteria"]
+    try:
+        sel = GB.resolve(c["period"], c["bank_name"], c["bank_state"], c["cert"] or None,
+                         c["location_ids"] if c["status"] == "RESTRICTED_TO_LOCATION_IDS" else None)
+    except GB.SelectionError:
+        raise HTTPException(409, "The saved lender identity no longer resolves in this release.")
+    # reconciled against the figures FROZEN in the Saved Analysis (absent in analyses saved before Phase 1)
+    return _loans_json(user, c["period"], sel, dim, value, a["payload"].get("activity"), f"analysis {a['id']}")
+
+
 def owned_job(request, job_id):
     user = current_user(request)
     job = jobs.load(job_id)
@@ -375,3 +504,9 @@ def download(request: Request, job_id: str):
     audit(user, "download", job=job["id"], file=path.name, sha256=sha)
     return FileResponse(path, filename=path.name,
                         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+# Benchmark Intelligence Phase A (investigative comparisons; webapp/benchmark_view.py). The route answers 404 unless
+# FBX_BENCHMARK_INTEL=enabled, so the Executive Summary, dashboard and every existing route are unchanged.
+from . import benchmark_view as BV  # noqa: E402
+BV.register(app, owned_analysis=owned_analysis, page=page, audit=audit, switcher=_switcher)

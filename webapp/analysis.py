@@ -7,7 +7,9 @@ from collections import OrderedDict
 
 from . import generator_bridge as GB
 from . import insights as IN
+from . import lending_activity as LA
 from . import source_notes as SN
+from . import static_pool as SP
 
 B, TA, C, S = GB.B, GB.TA, GB.GC, GB.S
 _lock = threading.Lock()
@@ -228,6 +230,8 @@ def _compute(period, sel, threshold):
     }
     payload["seasoning"] = seasoning(payload, as_of.year)
     payload["partial_year"] = partial_year(as_of)
+    payload["static_pool"] = static_pool(rows, sector_labels, as_of, payload)
+    payload["activity"] = LA.compute(rows, status_map(), as_of)        # Phase 1 lending activity (lending_activity.py)
     payload["source_notes"] = SN.for_bank(period, sel["cert"], payload)
     payload["insights"] = IN.build(payload)          # presentation rules over the figures above
     return payload
@@ -268,6 +272,21 @@ def seasoning(p, year):
             "bank_avg": total["avg"], "sba_avg": p["benchmark"]["total"]["total"]["avg"],
             "bank_share_above": above["orig"] / total["orig"] if total["orig"] else "n/a",
             "vintages": vint}
+
+
+def static_pool(rows, sector_labels, as_of, p):
+    """ChargeOffsByVintage (webapp.static_pool), plus the vintages charted by default: the two largest by original
+    amount in each of the portfolio-age bands used on Executive Portfolio (2008 or earlier, 2009 to y-5, y-4 to y)."""
+    sp = SP.compute(rows, sector_labels, as_of, {r["year"]: r["loans"] for r in p["bank"]["full"]["total"]["vintage"]})
+    bands = p["seasoning"]["bands"]
+    default = []
+    for i, b in enumerate(bands):
+        lo = bands[i - 1]["to"] + 1 if i else None
+        band = [v for v in sp["vintages"] if (lo is None or v["year"] >= lo) and v["year"] <= b["to"]]
+        default += [v["year"] for v in sorted(band, key=lambda v: -v["orig_mm"])[:2]]
+    sp["default_vintages"] = sorted(default)
+    sp["band_labels"] = [b["label"] for b in bands]
+    return sp
 
 
 def partial_year(as_of):

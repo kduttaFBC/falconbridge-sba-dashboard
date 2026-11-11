@@ -602,3 +602,113 @@ def test_server_refuses_public_start_without_preview_credentials():
         r = sp.run([_sys.executable, "-m", "webapp"], cwd=ROOT, env={**base, **env}, capture_output=True, text=True,
                    timeout=60)
         assert r.returncode != 0 and msg in (r.stderr + r.stdout), (env, r.stderr[-300:])
+
+
+# ---------------------------------------------------------------- static pool (ChargeOffsByVintage)
+FB_US_METRO = ROOT / "reference" / "benchmark" / "SBA_Historical Performance_US Metro Bank_2026Q2.xlsx"
+
+
+def _sp(name, state):
+    return _age_payload(name, state)
+
+
+@pytest.mark.skipif(not FB_US_METRO.exists(), reason="FalconBridge's US Metro workbook absent")
+def test_static_pool_equals_falconbridge_excel_values_us_metro():
+    """Every displayed ChargeOffsByVintage figure equals the value desktop Excel saved in FalconBridge's own workbook."""
+    from openpyxl import load_workbook
+    from openpyxl.utils import get_column_letter as L
+    ws = load_workbook(FB_US_METRO, data_only=True, read_only=True)["ChargeOffsByVintage"]
+    cell = {(r, c): v for r, row in enumerate(ws.iter_rows(max_row=84, max_col=79, values_only=True), 1)
+            for c, v in enumerate(row, 1)}
+    sp = _sp("US Metro Bank", "CA")["static_pool"]
+    close = lambda a, b: (a is None and b in (None, "")) or (b is not None and abs(a - b) <= 1e-9 * max(1, abs(b)))
+    shown, n = {v["year"] for v in sp["vintages"]}, 0
+    for i, y in enumerate(sp["years"]):
+        if y not in shown:
+            assert not cell[(6 + i, 5)] and cell[(6 + i, 6)] == "na"          # no loans: omitted, never shown as 0%
+    for v in sp["vintages"]:
+        r, r2 = 6 + v["year"] - 1991, 49 + v["year"] - 1991
+        pairs = [((r, 5), v["orig_mm"]), ((r, 6), v["pif_cum"]), ((r2, 6), v["co_cum"])]
+        if cell[(r2, 1)] is not None:                                          # A83 has no formula in the template
+            pairs.append(((r2, 1), v["co_total_mm"]))
+        for j in range(36):
+            pairs += [((r, 7 + j), v["pif_mm"][j]), ((r2, 7 + j), v["co_mm"][j]),
+                      ((r, 44 + j), v["pif_pct"][j]), ((r2, 44 + j), v["co_pct"][j])]
+        for (rr, cc), got in pairs:
+            n += 1
+            assert close(got, cell[(rr, cc)]), (f"{L(cc)}{rr}", got, cell[(rr, cc)])
+    assert n > 3000 and len(shown) == 21
+
+
+@pytest.mark.parametrize("name,state", [("US Metro Bank", "CA"), ("FinWise Bank", "UT"), ("Shoreham Bank", "RI")])
+def test_static_pool_curves_reconcile_and_stop_at_last_observation(name, state):
+    p = _sp(name, state)
+    sp = p["static_pool"]
+    last = sp["last_observed_year"]
+    assert last == 2026 and sp["excluded_loans"] == 0
+    vint = {r["year"]: r for r in p["bank"]["full"]["total"]["vintage"]}
+    for v in sp["vintages"]:
+        assert v["orig_mm"] > 0
+        assert len(v["curve_pif"]) == len(v["curve_co"]) == last - v["year"] + 1     # nothing after the as-of year
+        assert abs(v["curve_pif"][-1] - v["pif_cum"]) < 1e-12 and abs(v["curve_co"][-1] - v["co_cum"]) < 1e-12
+        assert all(b >= a - 1e-15 for a, b in zip(v["curve_pif"], v["curve_pif"][1:]))
+        assert all(x is None for y, x in zip(sp["years"], v["co_pct"]) if y < v["year"])
+        # the same totals as the validated PerformanceSummary vintage rows (date- and status-based agree here)
+        w = vint[v["year"]]
+        assert abs(v["orig_mm"] * 1e6 - w["orig"]) < 0.01 and v["loans"] == w["loans"]
+        assert abs(v["co_cum"] - w["cum_loss"]) < 1e-12 and abs(v["pif_cum"] - w["pif_pct"]) < 1e-12
+    bands = p["seasoning"]["bands"]
+    for i, b in enumerate(bands):
+        lo = bands[i - 1]["to"] + 1 if i else 0
+        assert len([y for y in sp["default_vintages"] if lo <= y <= b["to"]]) <= 2
+    assert set(sp["default_vintages"]) <= {v["year"] for v in sp["vintages"]}
+
+
+def test_static_pool_does_not_extend_past_the_as_of_year():
+    from datetime import date
+    from webapp import static_pool as SP
+    row = lambda fd, pif="", co="", amt="0": {"FirstDisbursementDate": fd, "PaidInFullDate": pif, "ChargeOffDate": co,
+                                              "GrossApproval": "1000000", "GrossChargeOffAmount": amt,
+                                              "NaicsDescription": "X"}
+    rows = [row("2020-03-01", pif="2022-05-01"), row("2020-04-01", co="2023-01-01", amt="400000"), row("2024-01-01"),
+            row("2021-01-01", pif="2021-06-01"), row("2020-01-01")]
+    sp = SP.compute(rows + [dict(row("2020-01-01"), NaicsDescription="Other")], ["X"], date(2024, 6, 30), {})
+    v = {x["year"]: x for x in sp["vintages"]}
+    assert sorted(v) == [2020, 2021, 2024] and sp["excluded_loans"] == 1 and sp["last_observed_year"] == 2024
+    assert v[2020]["orig_mm"] == 3 and v[2020]["curve_pif"] == [0, 0, 1 / 3, 1 / 3, 1 / 3]
+    assert v[2020]["curve_co"] == [0, 0, 0, 0.4 / 3, 0.4 / 3] and v[2024]["curve_pif"] == [0]
+    assert v[2021]["curve_pif"] == [1, 1, 1, 1]
+
+
+def test_static_pool_page_keeps_existing_sub_tabs_and_labels():
+    t = client.get("/dashboard", params={"period": "20260630", "name": "US Metro Bank", "state": "CA",
+                                         "tab": "analysis"}).text
+    for s in ("vintages", "industries", "subprograms", "staticpool"):
+        assert f'data-sub="{s}"' in t and f'id="sub-{s}"' in t
+    for label in ("Prepayment: cumulative paid-in-full %", "Loss: cumulative gross charge-off %",
+                  "A loss measure, not a default rate", "Years since first disbursement", "not current balances or outstanding principal",
+                  "are not treated as zero", "Show all", "Default selection", "Workbook tables (calendar years)",
+                  "no SBA static pool", "were not stored with this saved analysis"):
+        assert label in t, label
+    assert '"static_pool"' in t
+
+
+def test_release_has_no_paid_in_full_dates_before_the_static_pool_cutoff():
+    """The static pool's paid-in-full dating caveat (webapp.static_pool.PIF_DATES_FROM) matches the release."""
+    import csv
+    from webapp import static_pool as SP
+    csv.field_size_limit(10 ** 9)
+    years = {}
+    for f in sorted(RELEASE.glob("*.csv")):
+        with open(f, newline="", encoding="utf-8-sig") as fh:
+            for r in csv.DictReader(fh):
+                d = r["PaidInFullDate"].strip()
+                if d:
+                    y = int(d[:4]) if "-" in d else int(d.split("/")[-1])
+                    years[y] = years.get(y, 0) + 1
+    assert min(years) == SP.PIF_DATES_FROM
+    assert years[SP.PIF_DATES_FROM] > 5 * years[SP.PIF_DATES_FROM + 1]
+    t = client.get("/dashboard", params={"period": "20260630", "name": "Shoreham Bank", "state": "RI"}).text
+    assert "the SBA FOIA data have no paid-in-full date before" in t and '"pif_dates_from": 2005' in t
+    assert "is not reliable and should not be read from the curves" in t and "not reliable</span>" in t
+    assert '"total_formula_missing": {"2025": "A83"}' in t and "has no formula in FalconBridge's original workbook" in t

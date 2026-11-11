@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ m.bank.name }}{% endblock %} - FalconBridge</title>
+<link rel="stylesheet" href="/static/insight.css">
+</head>
+<body>
+<header class="ib-top"><div class="ib-wrap">
+  <div class="ib-brand">FalconBridge Capital<span>SBA 7(a) Lender Intelligence</span></div>
+  <nav><a href="/analyses">Saved analyses</a><a href="/">New analysis</a><a href="/jobs">Excel reports</a></nav>
+</div></header>
+<div class="ib-bar"><div class="ib-wrap">
+  <div class="ib-bank">
+    <h1>{{ m.bank.name }}</h1>
+    <div class="sub">{{ m.bank.state }}{% if m.bank.cert %} &middot; FDIC cert {{ m.bank.cert }}{% endif %} &middot; SBA FOIA data as of {{ m.as_of_text }} &middot; loan size threshold {{ m.threshold_text }}</div>
+  </div>
+  {% if analyses|length > 1 %}
+  <form class="ib-switch" method="get" action="/analyses">
+    <label for="switch">Lender (saved analysis)</label>
+    <select id="switch" onchange="location.href='/analyses/' + this.value + '/{{ section }}'">
+      {% for a in analyses %}<option value="{{ a.id }}"{% if a.current %} selected{% endif %}>{{ a.label }}</option>{% endfor %}
+    </select>
+  </form>
+  {% endif %}
+  <nav class="ib-tabs">
+    <a href="/analyses/{{ m.analysis_id }}/executive" class="{{ 'on' if section == 'executive' }}">Executive summary</a>
+    <a href="/analyses/{{ m.analysis_id }}/evidence" class="{{ 'on' if section == 'evidence' }}">Analyst evidence</a>
+    <a href="/analyses/{{ m.analysis_id }}/claims" class="{{ 'on' if section == 'claims' }}">Claims assessment</a>
+    <span class="tab-actions">{% block actions %}<a href="/analyses/{{ m.analysis_id }}?tab=analysis" class="plain">Full dashboard &rarr;</a>{% endblock %}</span>
+  </nav>
+</div></div>
+<main class="ib-wrap">{% block content %}{% endblock %}</main>
+<footer class="ib-foot">Local demonstration &middot; public SBA 7(a) FOIA data &middot; processed on this computer only &middot; {{ m.view_version }} &middot; generator {{ version }}</footer>
+</body>
+</html>

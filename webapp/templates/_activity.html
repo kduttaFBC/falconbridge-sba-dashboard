@@ -1,0 +1,81 @@
+<!-- ============================================================ Lending Activity (Phase 1; webapp/lending_activity.py) -->
+<div class="tab" id="tab-activity"
+     data-drill="{% if saved %}/analyses/{{ saved.id }}/loans?{% else %}/dashboard/loans?{{ query }}&{% endif %}"
+     data-live="/dashboard?{{ query }}&tab=activity">
+  <div id="act-missing" class="card" hidden>
+    <h2>Lending activity is not stored in this saved analysis</h2>
+    <p>This analysis was saved before lending activity was added. Its frozen figures are unchanged and are not
+      recomputed. <a class="button" id="act-live-link" href="#">Open the live analysis</a></p>
+  </div>
+  <div id="act-body">
+    <section class="card">
+      <div class="sec-head"><h2>Lending activity</h2>
+        <span class="muted" id="act-pop"></span></div>
+      <div class="kpis" id="act-kpis"></div>
+      <p class="fine" id="act-basis"></p>
+    </section>
+
+    <section class="card">
+      <div class="sec-head"><h2>Originations over time</h2>
+        <div class="act-controls">
+          <span class="seg small" id="act-period" role="group" aria-label="Period"><button type="button" data-v="annual" class="on">Annual</button><button type="button" data-v="quarterly">Quarterly</button></span>
+          <span class="seg small" id="act-measure" role="group" aria-label="Measure"><button type="button" data-v="amount" class="on">Gross = guaranteed + unguaranteed</button><button type="button" data-v="count">Loans</button></span>
+        </div></div>
+      <figure class="chart"><div class="cv tall"><canvas id="act-chart"></canvas></div>
+        <figcaption class="fine">Original approval amounts by year or quarter of first disbursement. Click a bar to see its loans.</figcaption></figure>
+      <details class="act-table" open><summary>Table</summary><div id="act-table"></div></details>
+    </section>
+
+    <section class="card">
+      <div class="sec-head"><h2>Originations and defaults</h2><span class="muted">two different populations, shown side by side</span></div>
+      <div class="act-two">
+        <figure class="chart"><figcaption>Loans originated in each year now in default status <span>% Cum. Defaulted of that year's originations (cohort)</span></figcaption><div class="cv"><canvas id="act-cohort"></canvas></div></figure>
+        <figure class="chart"><figcaption>Charge-off events by year of charge-off date <span>loans in default status (CHGOFF, CLSLN); gross charge-off cash amount</span></figcaption><div class="cv"><canvas id="act-events"></canvas></div></figure>
+      </div>
+      <p class="fine" id="act-events-note"></p>
+    </section>
+
+    <section class="card">
+      <div class="sec-head"><h2>Unguaranteed exposure by industry</h2><span class="muted">full history &middot; original amounts</span></div>
+      <div id="act-ind"></div>
+      <div class="sec-head act-sub"><h3>Industry by origination year</h3>
+        <span class="seg small" id="act-heat-m" role="group" aria-label="Heatmap measure"><button type="button" data-v="gross" class="on">Gross</button><button type="button" data-v="unguar">Original unguaranteed</button><button type="button" data-v="loans">Loans</button></span></div>
+      <div class="act-heat-wrap"><div id="act-heat"></div></div>
+      <p class="fine">Largest 12 industries by gross amount. Shading is relative to the largest cell in the table. Click a cell to see its loans.</p>
+      <div class="act-two">
+        <figure class="chart"><figcaption>Industry concentration by origination year <span>share of the year's gross amount</span></figcaption><div class="cv"><canvas id="act-conc"></canvas></div></figure>
+        <div id="act-conc-note" class="fine act-note"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="sec-head"><h2>Geography</h2>
+        <span class="seg small" id="act-geo" role="group" aria-label="State basis"><button type="button" data-v="project" class="on">Project state</button><button type="button" data-v="borrower">Borrower state</button></span></div>
+      <div class="act-two">
+        <figure class="chart"><div class="cv tall"><canvas id="act-geo-chart"></canvas></div></figure>
+        <div id="act-geo-table" class="act-scroll"></div>
+      </div>
+      <p class="fine" id="act-geo-note"></p>
+    </section>
+
+    <section class="card">
+      <div class="sec-head"><h2>Loan characteristics</h2><span class="muted">as published in the SBA FOIA data</span></div>
+      <div class="subnav" id="act-char-nav"></div>
+      <div id="act-char"></div>
+      <p class="fine" id="act-char-note"></p>
+    </section>
+  </div>
+
+  <div class="act-modal" id="act-modal" hidden role="dialog" aria-modal="true" aria-labelledby="act-modal-title">
+    <div class="act-modal-box">
+      <div class="act-modal-head">
+        <div><h2 id="act-modal-title"></h2><div class="fine" id="act-modal-pop"></div></div>
+        <div class="act-modal-actions"><span id="act-modal-rec" class="act-badge"></span>
+          <button type="button" id="act-modal-csv">Download CSV</button><button type="button" id="act-modal-close" class="primary">Close</button></div>
+      </div>
+      <div class="act-totals" id="act-modal-totals"></div>
+      <div class="act-scroll act-loans"><div id="act-modal-table"></div></div>
+      <p class="fine">Borrower names and street addresses are not shown. Loan references are derived from the public FOIA row (the file has no loan number). Amounts are original approval amounts and gross charge-offs, not current balances.</p>
+    </div>
+  </div>
+</div>

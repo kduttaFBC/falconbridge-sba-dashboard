@@ -7,6 +7,6 @@
 <td>{{ a.created }}</td><td>{{ c.bank_name }}, {{ c.bank_state }}</td><td>{{ c.cert or "none" }}</td><td>{{ c.as_of }}</td>
 <td class="num">${{ "{:,}".format(c.threshold) }}</td><td>{{ {"total": "All loans", "above": "Above", "below": "At or below", "both": "Both groups"}[a.view] }}</td>
 <td>{% if a.job %}{% if a.job.status == "succeeded" %}<a href="/jobs/{{ a.job.id }}/download">{{ a.job.result.file }}</a>{% else %}<a href="/jobs/{{ a.job.id }}">{{ a.job.status }}</a>{% endif %}{% endif %}</td>
-<td><a class="button" href="/analyses/{{ a.id }}">Open</a></td></tr>{% endfor %}
+<td style="white-space:nowrap"><a class="button primary" href="/analyses/{{ a.id }}/executive">Executive summary</a> <a class="button" href="/analyses/{{ a.id }}/evidence">Evidence</a> <a class="button" href="/analyses/{{ a.id }}/claims">Claims</a> <a class="button" href="/analyses/{{ a.id }}">Dashboard</a></td></tr>{% endfor %}
 </tbody></table>{% endif %}
 {% endblock %}

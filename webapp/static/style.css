@@ -142,3 +142,9 @@ ul.facts-list { padding-left: 18px; font-size: 13.5px; line-height: 1.5; margin-
 .caveat { color: #6b5200; }
 .src-note { margin: 8px 0 4px; padding: 10px 14px; border-left: 4px solid var(--accent); background: #eef4fb; border-radius: 6px; font-size: 13.5px; }
 .src-inline { display: inline-block; margin-top: 6px; font-size: 13px; }
+
+.sp-sel { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.sp-chip .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: baseline; }
+.sp-chip.on .sw { box-shadow: 0 0 0 1.5px #fff; }
+.tscroll { overflow-x: auto; } table.sp { font-size: 12px; } table.sp td, table.sp th { padding: 4px 7px; white-space: nowrap; }
+table.sp td:first-child, table.sp th:first-child { position: sticky; left: 0; background: var(--surface); }

@@ -1,0 +1,143 @@
+{% extends "insight_base.html" %}
+{% block title %}{{ m.bank.name }} - Analyst evidence{% endblock %}
+{% set lookup_ids = m.lookup|map(attribute="id")|list %}
+{% macro tbl(t) -%}
+<div class="ae-table"{% if t.id %} id="{{ t.id }}"{% endif %}>
+  {% if t.title %}<h3>{{ t.title }}{% if t.badge %} <span class="badge b-proposed">{{ t.badge }}</span>{% endif %}{% if t.subtitle %} <span class="muted">{{ t.subtitle }}</span>{% endif %}</h3>{% endif %}
+  {% if t.lead %}<p class="ae-lead">{{ t.lead }}</p>{% endif %}
+  <div class="scroll"><table class="fin{{ ' compact' if t.compact }}"><thead><tr>{% for h in t.head %}<th class="{{ 'num' if loop.index0 or t.compact }}">{{ h|safe }}</th>{% endfor %}</tr></thead><tbody>
+  {% for r in t.rows %}<tr class="{{ r.cls }}">{% for c in r.cells %}<td class="{{ 'num' if loop.index0 or t.compact }}">{% if c.ev %}<a class="evc" href="?ev={{ c.ev }}#{{ c.ev }}" title="{{ c.ev }} · {{ c.status }}">{{ c.text }}</a>{% else %}{{ c.text }}{% endif %}{% if c.tag %} <span class="tag-s">{{ c.tag }}</span>{% endif %}</td>{% endfor %}</tr>{% endfor %}
+  </tbody></table></div>
+  {% if t.note %}<p class="lim">{{ t.note }}</p>{% endif %}
+</div>
+{%- endmacro %}
+{% macro finding(f) -%}
+<div class="ae-f{{ ' proposed' if f.proposed }}" id="{{ f.anchor }}">
+  <div class="ae-fh">{% if f.ref %}<span class="ref">{{ f.ref }}</span>{% endif %}<h3>{{ f.heading }}</h3>
+    {% if f.proposed %}<span class="badge b-proposed">Proposed interpretation &middot; not established, not approved</span>
+    {% elif f.outcome == "REJECTED" %}<span class="badge b-rejected">Withheld &middot; failed the evidence check</span>
+    {% elif f.outcome == "ACCEPTED" and f.evidence %}<span class="ae-check">Checked against recorded evidence</span>{% endif %}</div>
+  <p>{{ f.text }}</p>
+  {% if f.limits %}<p class="ae-limits"><b>Limitations:</b> {{ f.limits|join("; ") }}.</p>{% endif %}
+  {% if f.evidence %}
+  <details class="support"><summary>Supporting evidence ({{ f.evidence|length }} record{{ "s" if f.evidence|length != 1 }})</summary>
+    <div class="meta">{% if f.claim_id %}<span>Claim {{ f.claim_id }}</span>{% endif %}<span>Validation status: {{ f.status_text }}</span><span>Methodology: {{ f.methodology }}</span>{% if f.caveats %}<span>Caveats: {{ f.caveats|join(", ") }}</span>{% endif %}</div>
+    {% if f.diff %}<div class="meta"><span>Bank {{ f.bank }} &middot; benchmark {{ f.sba }} &middot; difference (bank minus benchmark) <b>{{ f.diff }}</b>, recomputed by the claim check from the two cited records</span></div>{% endif %}
+    {% if f.findings %}<div class="lim">Claim check: {{ f.findings|join("; ") }}</div>{% endif %}
+    <div class="scroll"><table class="ev"><thead><tr><th>Evidence</th><th>Measure</th><th class="num">Value</th><th>Population, period and denominator</th><th>Validation status</th><th>Source and calculation</th></tr></thead><tbody>
+    {% for i in f.evidence %}{% set d = m.register_index.get(i) %}{% if d %}<tr><td><a class="mono" href="#{{ d.id }}">{{ d.id }}</a></td><td>{{ d.label }}</td><td class="num"><b>{{ d.shown }}</b></td>
+      <td>{{ d.population }}<div class="lim">as of {{ d.as_of }}{% if d.denominator %} &middot; denominator: {{ d.denominator }}{% endif %}</div></td>
+      <td>{{ d.status_text }}<div class="lim">{{ d.methodology }}</div></td>
+      <td class="lim">{% if d.source_path %}payload {{ d.source_path }}{% endif %}{% if d.rule %}rule: {{ d.rule }}{% endif %}<br>{{ d.calculation_version.split(" (")[0] }}</td></tr>{% endif %}{% endfor %}
+    </tbody></table></div>
+  </details>
+  {% endif %}
+</div>
+{%- endmacro %}
+{% block content %}
+<div class="an-grid">
+  <nav class="an-toc card" aria-label="Contents">
+    <a href="/analyses/{{ m.analysis_id }}/executive">&larr; Executive summary</a>
+    <div class="grp">Financial analysis</div>
+    {% for s in m.sections %}<a href="#{{ s.id }}">{{ s.title }}</a>{% endfor %}
+    <div class="grp">Findings</div>
+    {% for f in m.findings %}<a href="#{{ f.ref }}">{{ f.ref }} &middot; {{ f.title }}</a>{% endfor %}
+    <div class="grp">Records</div>
+    <a href="#limitations">Limitations</a>
+    <a href="#unavailable">Unavailable evidence</a>
+    <a href="#provenance">Source and provenance</a>
+    <a href="#register">Evidence register</a>
+  </nav>
+  <div>
+    {% if m.lookup or m.lookup_missing %}
+    <section class="card" id="lookup"><h2>Requested evidence</h2>
+      {% if m.lookup %}<div class="scroll"><table class="ev"><thead><tr><th>Evidence</th><th>Measure</th><th class="num">Value</th><th>Population, period and denominator</th><th>Validation and methodology</th><th>Source and calculation</th></tr></thead><tbody>
+      {% for d in m.lookup %}<tr id="{{ d.id }}"><td class="mono">{{ d.id }}<div class="lim">{{ d.kind }}</div></td><td>{{ d.label }}<div class="lim mono">{{ d.key }}</div></td><td class="num"><b>{{ d.shown }}</b></td>
+        <td>{{ d.population }}<div class="lim">as of {{ d.as_of }}{% if d.denominator %} &middot; denominator: {{ d.denominator }}{% endif %}</div></td>
+        <td><span class="badge b-status">{{ d.status_text }}</span><div class="lim">{{ d.methodology }}{% if d.numerically_verified %} &middot; numerically verified by a validation record{% endif %}</div>{% for l in d.limitations %}<div class="lim">&bull; {{ l }}</div>{% endfor %}</td>
+        <td class="lim">{% if d.source_path %}payload {{ d.source_path }}{% endif %}{% if d.rule %}rule: {{ d.rule }}{% endif %}{% if d.definition %}<br>definition: {{ d.definition }}{% endif %}<br>{{ d.calculation_version }}</td></tr>{% endfor %}
+      </tbody></table></div>{% endif %}
+      {% if m.lookup_missing %}<p class="lim">Not found in this analysis's evidence: {{ m.lookup_missing|join(", ") }}</p>{% endif %}
+    </section>
+    {% endif %}
+
+    <section class="card ae-legend">
+      <div><b>Checked against recorded evidence</b>: every number in the statement equals a recorded evidence value (the claim check). It is numerical consistency only.</div>
+      <div><b>Independent validation</b>: values recomputed separately from source data. {% if m.provenance.validations_applied %}A clean-room record is attached: the bank's own totals and vintages agree; benchmark, industry and subprogram figures are not recomputed.{% else %}None is attached to this analysis yet.{% endif %}</div>
+      <div><b>FalconBridge methodology approval</b>: not yet given; the SBA benchmark is preliminary.</div>
+      <div class="muted">Click any figure for its evidence record. Supporting evidence under each finding is collapsed.</div>
+    </section>
+
+    {% for s in m.sections %}
+    <section class="card ae-sec" id="{{ s.id }}">
+      <div class="ae-head"><div><h2>{{ s.title }}{% if s.badge %} <span class="badge b-proposed">{{ s.badge }}</span>{% endif %}</h2><div class="muted">{{ s.subtitle }}</div></div>
+        <div class="ae-links">{% for label, url in s.links %}<a href="{{ url }}">{{ label }} &rarr;</a>{% endfor %}</div></div>
+      {% if s.status %}<p class="ae-status"><b>Validation:</b> {{ s.status|join(" · ") }}.</p>{% endif %}
+
+      {% for t in s.tables %}{{ tbl(t) }}{% endfor %}
+      {% for t in s.more or [] %}<details class="ae-more"{% if t.id %} id="{{ t.id }}"{% endif %}><summary>{{ t.title }}{% if t.badge %} <span class="badge b-proposed">{{ t.badge }}</span>{% endif %}</summary>{{ tbl(dict(t, id=None, title=None, badge=None)) }}</details>{% endfor %}
+
+      {% if s.dashboard_only %}<div class="ae-only"><h3>On the dashboard only (not yet in the evidence layer)</h3><ul class="limits">
+        {% for name, url, where in s.dashboard_only %}<li>{{ name }}: <a href="{{ url }}">{{ where }} &rarr;</a></li>{% endfor %}</ul></div>{% endif %}
+
+      {% if s.methodology %}
+        <div class="ae-notice"><b>Preliminary benchmark.</b> {{ m.notice }}</div>
+        <div id="limitations"><h3 class="ae-sub">Material limitations</h3>{% for f in s.findings %}{{ finding(f) }}{% endfor %}
+          <div class="ae-f"><h3>Evidence-layer limitations</h3><ul class="limits">{% for x in m.pack_limitations %}<li>{{ x }}</li>{% endfor %}</ul></div></div>
+        {% if m.withheld %}<h3 class="ae-sub">Withheld statements</h3>{% for x in m.withheld %}{{ finding(dict(x, anchor="withheld-" ~ loop.index, heading="Withheld " ~ loop.index, limits=[], proposed=False)) }}{% endfor %}{% endif %}
+        <h3 class="ae-sub">Disclosures and presentation rules</h3><ul class="limits">{% for r in s.rules %}<li>{{ r }}</li>{% endfor %}</ul>
+        <div id="unavailable"><h3 class="ae-sub">Unavailable evidence</h3><ul class="limits">{% for name, why in m.not_evidenced %}<li><b>{{ name }}.</b> {{ why }}</li>{% endfor %}</ul></div>
+        <div id="provenance"><h3 class="ae-sub">Source and provenance</h3>
+          {% set pv = m.provenance %}
+          <dl class="kv">
+            <dt>Saved Analysis</dt><dd class="mono">{{ pv.source_id }} (saved {{ pv.recorded_at }})</dd>
+            <dt>Payload SHA-256</dt><dd class="mono">{{ pv.payload_sha256 }}</dd>
+            <dt>Evidence pack fingerprint</dt><dd class="mono">{{ m.pack_fingerprint }}</dd>
+            <dt>Calculation version</dt><dd>{{ pv.calculation_version }}</dd>
+            <dt>Workbook corrections D-1</dt><dd>{{ "included" if pv.workbook_corrections_D1 else "not included (earlier version)" }}</dd>
+            <dt>Evidence adapter</dt><dd>{{ pv.adapter_version }} &middot; view {{ m.view_version }}</dd>
+            <dt>SBA FOIA release</dt><dd>{{ pv.period }} &middot; {{ pv.release_files|join(", ") }}</dd>
+            <dt>Validation records</dt><dd>{{ pv.validations_applied|join(", ") if pv.validations_applied else "none attached (no value is independently verified)" }}</dd>
+            <dt>Engine validation scope</dt><dd>{{ "This bank and release are within the engine-level validation scope (information only; not a validation record)." if m.engine_scope.this_bank_and_release_in_engine_scope else "Outside the engine-level validation scope." }}</dd>
+            <dt>Values by validation status</dt><dd>{% for k, n in m.status_counts %}{{ k }}: {{ "{:,}".format(n) }}{% if not loop.last %} &middot; {% endif %}{% endfor %}</dd>
+          </dl></div>
+        <details class="ae-more" id="register"><summary>Evidence register: {{ m.register|length }} records cited by findings (of {{ "{:,}".format(m.record_count) }} in this analysis)</summary>
+          <div class="scroll"><table class="ev"><thead><tr><th>Evidence</th><th>Measure</th><th class="num">Value</th><th>Population, period and denominator</th><th>Validation and methodology</th><th>Source and calculation</th></tr></thead><tbody>
+          {% for d in m.register %}<tr{% if d.id not in lookup_ids %} id="{{ d.id }}"{% endif %}><td class="mono">{{ d.id }}<div class="lim">{{ d.kind }}</div></td>
+            <td>{{ d.label }}<div class="lim mono">{{ d.key }}</div></td><td class="num"><b>{{ d.shown }}</b></td>
+            <td>{{ d.population }}<div class="lim">as of {{ d.as_of }}{% if d.denominator %}<br>denominator: {{ d.denominator }}{% endif %}</div></td>
+            <td><span class="badge b-status">{{ d.status_text }}</span><div class="lim">{{ d.methodology }}{% if d.numerically_verified %} &middot; numerically verified by a validation record{% endif %}</div>
+              {% for l in d.limitations %}<div class="lim">&bull; {{ l }}</div>{% endfor %}</td>
+            <td><div class="lim">{% if d.source_path %}payload {{ d.source_path }}{% endif %}{% if d.rule %}rule: {{ d.rule }}{% endif %}</div>
+              {% if d.definition %}<div class="lim">definition: {{ d.definition }}</div>{% endif %}
+              {% if d.basis %}<div class="lim">basis: {{ d.basis }}</div>{% endif %}
+              <div class="lim">{{ d.calculation_version }}</div>
+              {% if d.derived_from %}<div class="lim">from: {% for x in d.derived_from %}<a class="mono" href="#{{ x }}">{{ x }}</a> {% endfor %}</div>{% endif %}</td></tr>{% endfor %}
+          </tbody></table></div>
+        </details>
+      {% else %}
+        {% if s.findings or s.empty %}
+        <div class="ae-findings"{% if s.findings_id %} id="{{ s.findings_id }}"{% endif %}><h3 class="ae-sub">Findings</h3>
+          {% for f in s.findings %}{{ finding(f) }}{% endfor %}
+          {% if s.empty %}<p class="muted">{{ s.empty }}</p>{% endif %}</div>
+        {% endif %}
+      {% endif %}
+    </section>
+    {% endfor %}
+  </div>
+</div>
+<script>
+// A link to an element inside a collapsed panel (e.g. #EV-... in the evidence register) opens the panel first.
+(function () {
+  function reveal() {
+    if (!location.hash) return;
+    var el = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    if (!el) return;
+    for (var p = el; p; p = p.parentElement) { if (p.tagName === "DETAILS") p.open = true; }
+    el.scrollIntoView({block: "start"});
+  }
+  window.addEventListener("hashchange", reveal);
+  reveal();
+})();
+</script>
+{% endblock %}

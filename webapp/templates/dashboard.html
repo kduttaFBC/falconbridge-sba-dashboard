@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ payload.criteria.bank_name }} - SBA 7(a) Performance Summary{% endblock %}
-{% block head %}<script src="/static/vendor/chart.umd.min.js"></script>{% endblock %}
+{% block head %}<script src="/static/vendor/chart.umd.min.js"></script><link rel="stylesheet" href="/static/activity.css"><script src="/static/activity.js"></script>{% endblock %}
 {% block content %}
 {% set c = payload.criteria %}
 {% macro hidden(f) %}
@@ -48,6 +48,7 @@
 </div>
 <nav class="tabs" role="tablist">
   <button type="button" data-tab="executive" role="tab">Executive Portfolio</button>
+  <button type="button" data-tab="activity" role="tab">Lending Activity</button>
   <button type="button" data-tab="analysis" role="tab">Portfolio Analysis</button>
   <button type="button" data-tab="benchmark" role="tab">Benchmark Analysis</button>
   <button type="button" data-tab="reports" role="tab">Methodology &amp; Reports</button>
@@ -89,10 +90,12 @@
     not available from SBA FOIA data and is not shown. SBA benchmark: PRELIMINARY.</p>
 </div>
 
+{% include "_activity.html" %}
+
 <!-- ============================================================ Portfolio Analysis -->
 <div class="tab" id="tab-analysis">
   <div class="subnav">
-    <button type="button" data-sub="vintages">Vintages</button><button type="button" data-sub="industries">Industries</button><button type="button" data-sub="subprograms">Subprograms</button>
+    <button type="button" data-sub="vintages">Vintages</button><button type="button" data-sub="industries">Industries</button><button type="button" data-sub="subprograms">Subprograms</button><button type="button" data-sub="staticpool">Static pool</button>
     <span class="muted">Bank: full history (PerformanceSummary rows) &middot; SBA: industry-matched benchmark, FY2000 onward</span>
   </div>
   <div class="sub" id="sub-vintages">
@@ -111,6 +114,33 @@
   <div class="sub" id="sub-subprograms">
     <section class="card"><div class="sec-head"><h2>Subprograms</h2><span class="muted">FalconBridge display labels &middot; full history</span></div>
       <div id="t-sub"></div></section>
+  </div>
+  <div class="sub" id="sub-staticpool">
+    <section class="card"><div class="sec-head"><h2>Static pool: timing of prepayments and losses by vintage</h2>
+      <span class="muted">bank only &middot; FalconBridge workbook ChargeOffsByVintage &middot; % of each vintage's original gross amount</span></div>
+      <div id="sp-body">
+      <ul class="facts-list sp-defs">
+        <li><strong>Prepayment: cumulative paid-in-full %</strong>: original gross amount of the vintage's loans with a paid-in-full date, by the year they were paid in full, &divide; the vintage's original gross amount.</li>
+        <li><strong>Loss: cumulative gross charge-off %</strong>: gross charge-off amount, by charge-off year, &divide; the vintage's original gross amount. A loss measure, not a default rate.</li>
+        <li><strong>% Cum. Defaulted</strong> (Vintages and Executive Portfolio) is the default-rate measure and is not shown here.</li>
+      </ul>
+      <div class="sp-sel"><span class="muted">Vintages charted:</span> <span class="chips" id="sp-chips"></span>
+        <span class="seg small"><button type="button" data-sp="default">Default selection</button><button type="button" data-sp="all">Show all</button><button type="button" data-sp="none">Clear</button></span></div>
+      <p class="fine" id="sp-sel-note"></p>
+      <div class="grid2">
+        <figure class="chart"><figcaption>Prepayment: cumulative paid-in-full % <span>x: years since first disbursement (0 = year of first disbursement)</span></figcaption><div class="cv"><canvas id="c-sp-pif"></canvas></div></figure>
+        <figure class="chart"><figcaption>Loss: cumulative gross charge-off % <span>x: years since first disbursement &middot; own % scale</span></figcaption><div class="cv"><canvas id="c-sp-co"></canvas></div></figure>
+      </div>
+      <ul class="facts-list caveat" id="sp-caveats"></ul>
+      </div>
+      <p class="limit" id="sp-limit" hidden></p>
+    </section>
+    <section class="card" id="sp-tables"><div class="sec-head"><h2>Workbook tables (calendar years)</h2>
+      <span class="seg small" id="sp-unit"><button type="button" data-u="pct">% of vintage original amount</button><button type="button" data-u="mm">$ millions</button></span></div>
+      <p class="fine" id="sp-t-note"></p>
+      <details open><summary><strong>Prepayment: paid in full by vintage and paid-in-full year</strong> <span class="muted">(ChargeOffsByVintage rows 6&ndash;41)</span></summary><div class="tscroll" id="t-sp-pif"></div></details>
+      <details><summary><strong>Loss: gross charge-offs by vintage and charge-off year</strong> <span class="muted">(ChargeOffsByVintage rows 49&ndash;84)</span></summary><div class="tscroll" id="t-sp-co"></div></details>
+    </section>
   </div>
 </div>
 
@@ -335,7 +365,7 @@
   function analysis() {
     document.querySelectorAll(".subnav button").forEach((b) => b.classList.toggle("on", b.dataset.sub === sub));
     document.querySelectorAll(".sub").forEach((s) => s.hidden = s.id !== "sub-" + sub);
-    if (sub === "vintages") vintages(); else if (sub === "industries") industries(); else subprograms();
+    if (sub === "vintages") vintages(); else if (sub === "industries") industries(); else if (sub === "staticpool") staticPool(); else subprograms();
   }
   function vintages() {
     const bv = B.full.total.vintage, sv = Object.fromEntries(BM.total.vintage.map((r) => [r.year, r]));
@@ -383,6 +413,83 @@
     document.getElementById("t-sub").innerHTML = table(["Subprogram", "# of Loans Orig.", "Orig. Bal.", "Est. # Outstanding",
       "# Defaulted", "% Cum. Defaulted", "% Loss Severity", "% Cum. Loss"], rows);
   }
+
+  // static pool (ChargeOffsByVintage): every figure comes from the payload; curves are the running totals computed
+  // server-side, so nothing is calculated here. Colour follows the vintage (older = darker), never the selection.
+  const SP = P.static_pool || null;
+  let spSel = SP ? new Set(SP.default_vintages) : new Set(), spUnit = "pct";
+  function spColor(y) {
+    const V = SP.vintages, a = V[0].year, b = V[V.length - 1].year, t = b > a ? (y - a) / (b - a) : 0;
+    const c0 = [11, 45, 84], c1 = [111, 168, 220];
+    return "rgb(" + c0.map((x, i) => Math.round(x + (c1[i] - x) * t)).join(",") + ")";
+  }
+  function staticPool() {
+    const lim = document.getElementById("sp-limit"), body = document.getElementById("sp-body"), tabs = document.getElementById("sp-tables");
+    if (!SP || !SP.vintages.length) {
+      body.hidden = true; tabs.hidden = true; lim.hidden = false;
+      lim.textContent = !SP ? "Static pool figures were not stored with this saved analysis (earlier dashboard version). Start a new analysis for the same criteria to see them."
+        : "No static pool: the bank has no loans first disbursed in " + SP.years[0] + "–" + SP.years[SP.years.length - 1] + ", the years covered by the workbook's ChargeOffsByVintage sheet.";
+      return;
+    }
+    body.hidden = false; tabs.hidden = false; lim.hidden = true;
+    const V = SP.vintages, last = SP.last_observed_year;
+    const early = (v) => v.year < SP.pif_dates_from;          // prepayment timing distorted by the release's PIF dating
+    document.getElementById("sp-chips").innerHTML = V.map((v) => `<button type="button" class="chip sp-chip${spSel.has(v.year) ? " on" : ""}" data-y="${v.year}" aria-pressed="${spSel.has(v.year)}">` +
+      `<span class="sw" style="background:${spColor(v.year)}"></span>${esc(yl(v.year))}</button>`).join("");
+    document.querySelectorAll(".sp-chip").forEach((b) => b.addEventListener("click", () => {
+      const y = +b.dataset.y; if (spSel.has(y)) spSel.delete(y); else spSel.add(y); staticPool(); }));
+    document.getElementById("sp-sel-note").textContent = `Default selection: the two largest vintages by original gross amount in each portfolio-age band (${SP.band_labels.join("; ")}). ` +
+      `All ${V.length} vintages are available; select or clear any of them. Hollow markers: vintages with fewer than 10 loans (small samples).` + (V.some(early) ? ` Dashed prepayment curves: vintages disbursed before ${SP.pif_dates_from} (see the paid-in-full dates note).` : "");
+    const shown = V.filter((v) => spSel.has(v.year));
+    const maxK = Math.max(0, ...(shown.length ? shown : V).map((v) => v.curve_pif.length - 1)), ks = Array.from({length: maxK + 1}, (_, k) => k);
+    const ds = (key) => shown.map((v) => {
+      const flag = key === "curve_pif" && early(v);
+      const d = line(yl(v.year) + " vintage", ks.map((k) => k < v[key].length ? v[key][k] : null), spColor(v.year), flag,
+        ks.map((k) => k < v[key].length ? `calendar year ${yl(v.year + k)} · orig. ${money(v.orig_mm * 1e6)} · ${int(v.loans)} loans` +
+          (flag ? ` · payoffs before ${SP.pif_dates_from} are dated ${SP.pif_dates_from} in the SBA data` : "") : ""));
+      d.spanGaps = false; d.pointRadius = 2;
+      if (v.loans < 10) { d.pointBackgroundColor = "#ffffff"; d.pointRadius = 3; }
+      return d;
+    });
+    const opt = {fmt: pct, options: {interaction: {mode: "nearest", intersect: false},
+      scales: {x: {grid: {display: false}, title: {display: true, text: "Years since first disbursement", color: MUTED}, ticks: {color: MUTED, maxRotation: 0, autoSkip: true}},
+               y: {grid: {color: GRID}, border: {display: false}, ticks: {color: MUTED, callback: (v) => pct(v)}, beginAtZero: true}}}};
+    chart("c-sp-pif", "line", ks, ds("curve_pif"), opt);
+    chart("c-sp-co", "line", ks, ds("curve_co"), opt);
+    [charts["c-sp-pif"], charts["c-sp-co"]].forEach((c) => { c.options.plugins.legend.display = false; c.update(); });
+    const young = V.filter((v) => last - v.year < 5).map((v) => yl(v.year)), old = V.filter(early);
+    document.getElementById("sp-caveats").innerHTML = [
+      ...(old.length ? [`Paid-in-full dates: the SBA FOIA data have no paid-in-full date before ${SP.pif_dates_from}, and historical paid-in-full dates are concentrated in ${SP.pif_dates_from}: loans paid in full earlier carry a ${SP.pif_dates_from} date. ` +
+        `For the ${old.length} vintage(s) disbursed before ${SP.pif_dates_from} (dashed prepayment curves, marked in the table), the cumulative paid-in-full total is preserved, but the timing of their payoffs before ${SP.pif_dates_from} is not reliable and should not be read from the curves. Charge-off dates are not affected.`] : []),
+      `Seasoning: each curve ends at ${yl(last)}, the last year observed, so recent vintages have short curves${young.length ? " (" + young.join(", ") + ": under 5 years)" : ""}. ` +
+        "They have had less time to pay off or charge off; compare vintages at the same number of years since disbursement. Years not yet observed are not shown and are not treated as zero.",
+      ...(PY ? [`${yl(last)} is a partial year (through ${PY.through}): the last point of every curve covers part of that year only, and the ${yl(last)} vintage holds loans first disbursed through that date.`] : []),
+      "Year 0 is the calendar year of first disbursement, so it covers less than a full year for most loans.",
+      "Paid in full counts loans repaid early or at maturity (the FOIA data do not distinguish them), by paid-in-full date. The status-based \"Paid in full by vintage\" chart under Supplementary analysis counts loans by status.",
+      "Charge-offs are gross: the FOIA data have no recoveries, so net losses cannot be shown.",
+      "All percentages use original gross amounts, not current balances or outstanding principal. Each curve's last point equals the workbook's cumulative column (F).",
+      "Bank only: FalconBridge's workbook has no SBA static pool, so there is no benchmark comparison here.",
+      ...(SP.excluded_loans ? [`${int(SP.excluded_loans)} loan(s) whose industry is not on the workbook's industry list are excluded, as in the workbook (Sector_Pick).`] : []),
+    ].map((t) => `<li>${esc(t)}</li>`).join("");
+    document.querySelectorAll("#sp-unit button").forEach((b) => b.classList.toggle("on", b.dataset.u === spUnit));
+    const first = V[0].year, yrs = SP.years.filter((y) => y >= first), off = SP.years.indexOf(first), gap = SP.total_formula_missing || {};
+    const cell = (x) => x === null ? "" : x ? (spUnit === "pct" ? pct(x) : x.toFixed(3)) : '<span class="muted" title="0">–</span>';
+    const head = (cum, extra) => ["Vintage", "# of Loans", "Orig ($mm)"].concat(extra).concat([cum]).concat(yrs.map((y) => String(yl(y))));
+    const rowOf = (v, vals, cum, extra, pifRow) => ({cells: [esc(yl(v.year)) + (v.loans < 10 ? ' <span class="tag-s">small sample</span>' : "") +
+        (pifRow && early(v) ? ` <span class="tag-s">timing before ${SP.pif_dates_from} not reliable</span>` : ""), int(v.loans), v.orig_mm.toFixed(3)]
+      .concat(extra).concat([pct(cum)]).concat(vals.slice(off).map(cell))});
+    document.getElementById("t-sp-pif").innerHTML = table(head("Cumulative PIF (%)", []),
+      V.map((v) => rowOf(v, spUnit === "pct" ? v.pif_pct : v.pif_mm, v.pif_cum, [], true)), "sp");
+    document.getElementById("t-sp-co").innerHTML = table(head("Cumulative Charge-off (%)", ["Charge-offs ($mm)"]),
+      V.map((v) => rowOf(v, spUnit === "pct" ? v.co_pct : v.co_mm, v.co_cum, [v.co_total_mm.toFixed(3) + (gap[v.year] ? " ‡" : "")])), "sp");
+    document.getElementById("sp-t-note").textContent = `Calendar-year layout of the workbook sheet: rows = vintage (year of first disbursement), columns = year paid in full or charged off. ` +
+      `Vintages with no loans and the empty columns before ${first} are omitted. "–" = zero in the workbook. Charge-off % cells before the vintage year are blank, as in the workbook.` +
+      Object.entries(gap).map(([y, c]) => ` ‡ ${yl(+y)} Charge-offs ($mm): calculated by the same annual sum as every other row (SUM of the year columns); the corresponding cell (${c}) has no formula in FalconBridge's original workbook.`).join("") + pyNote();
+  }
+  document.querySelectorAll("[data-sp]").forEach((b) => b.addEventListener("click", () => {
+    if (!SP) return;
+    spSel = new Set(b.dataset.sp === "all" ? SP.vintages.map((v) => v.year) : b.dataset.sp === "none" ? [] : SP.default_vintages); staticPool(); }));
+  document.querySelectorAll("#sp-unit button").forEach((b) => b.addEventListener("click", () => { spUnit = b.dataset.u; staticPool(); }));
 
   // ------------------------------------------------------------ Benchmark Analysis
   function benchmark() {
@@ -473,13 +580,13 @@
   }
 
   // ------------------------------------------------------------ navigation
-  const TABS = ["executive", "analysis", "benchmark", "reports"];
+  const TABS = ["executive", "activity", "analysis", "benchmark", "reports"];
   if (!TABS.includes(tab)) tab = "executive";
   function render() {
     document.querySelectorAll(".tabs button[data-tab]").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
     document.querySelectorAll(".tab").forEach((t) => t.hidden = t.id !== "tab-" + tab);
     document.querySelectorAll(".keep-tab").forEach((i) => i.value = tab);
-    if (tab === "executive") executive(); else if (tab === "analysis") analysis(); else if (tab === "benchmark") benchmark(); else reports();
+    if (tab === "executive") executive(); else if (tab === "activity") window.FBXActivity.render(P); else if (tab === "analysis") analysis(); else if (tab === "benchmark") benchmark(); else reports();
     const u = new URL(location.href); u.searchParams.set("tab", tab); u.searchParams.delete("view"); history.replaceState(null, "", u);
   }
   document.querySelectorAll(".tabs button[data-tab]").forEach((b) => b.addEventListener("click", () => { tab = b.dataset.tab; render(); }));

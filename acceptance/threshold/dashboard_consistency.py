@@ -108,6 +108,28 @@ def main():
         sba_z = sum(ps.get((r, CI("Z"))) or 0 for y, r in year_rows.items() if b["from"] <= y <= b["to"])
         check(f"seasoning bank share {b['label']} (sum of N)", b["bank_share"], bank_n)
         check(f"seasoning SBA share {b['label']} (sum of Z)", b["sba_share"], sba_z)
+    # static pool = ChargeOffsByVintage cells (rows 6-41 paid in full, 49-84 charge-offs; columns G:AP $mm, AR:CA %)
+    sp, cv = p["static_pool"], wb["ChargeOffsByVintage"]
+    co = {(r, c): v for r, row in enumerate(cv.iter_rows(max_row=84, max_col=79, values_only=True), 1)
+          for c, v in enumerate(row, 1)}
+    shown = {v["year"] for v in sp["vintages"]}
+    for i, y in enumerate(sp["years"]):
+        if y not in shown:
+            check(f"ChargeOffsByVintage!E{6 + i} omitted vintage {y} has no original amount", 0, co.get((6 + i, 5)) or 0)
+    for v in sp["vintages"]:
+        r, r2 = 6 + v["year"] - sp["years"][0], 49 + v["year"] - sp["years"][0]
+        check(f"ChargeOffsByVintage!E{r}", v["orig_mm"], co.get((r, 5)))
+        check(f"ChargeOffsByVintage!F{r}", v["pif_cum"], co.get((r, 6)))
+        check(f"ChargeOffsByVintage!F{r2}", v["co_cum"], co.get((r2, 6)))
+        check(f"static pool PIF curve end {v['year']} = F{r}", v["curve_pif"][-1], co.get((r, 6)))
+        check(f"static pool charge-off curve end {v['year']} = F{r2}", v["curve_co"][-1], co.get((r2, 6)))
+        if co.get((r2, 1)) is not None:                    # A83 (2025) has no formula in FalconBridge's template
+            check(f"ChargeOffsByVintage!A{r2}", v["co_total_mm"], co.get((r2, 1)))
+        for j in range(len(sp["years"])):
+            check(f"ChargeOffsByVintage!{L(7 + j)}{r}", v["pif_mm"][j], co.get((r, 7 + j)))
+            check(f"ChargeOffsByVintage!{L(7 + j)}{r2}", v["co_mm"][j], co.get((r2, 7 + j)))
+            check(f"ChargeOffsByVintage!{L(44 + j)}{r}", v["pif_pct"][j], co.get((r, 44 + j)))
+            check(f"ChargeOffsByVintage!{L(44 + j)}{r2}", v["co_pct"][j], co.get((r2, 44 + j)))
     # FalconBridge display labels and Glossary text, as written in the workbook
     sub_rows = {ps.get((r, 1)): ps.get((r, 2)) for r in range(7, 20) if ps.get((r, 1))}
     for row in p["bank"]["full"]["total"]["subprogram"]:

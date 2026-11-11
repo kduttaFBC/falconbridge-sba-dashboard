@@ -17,6 +17,11 @@
 !/acceptance/threshold/oracle.py
 !/acceptance/threshold/dashboard_consistency.py
 !/acceptance/threshold/run_matrix.sh
+# intelligence layer: application source code only (*.py). Evidence packs, exports, claims, transcripts and any other
+# generated or confidential file under intelligence/ stay excluded.
+!/intelligence/
+/intelligence/*
+!/intelligence/*.py
 
 # never, anywhere (defence in depth; also enforced by deploy/check_repo_contents.py)
 __pycache__/

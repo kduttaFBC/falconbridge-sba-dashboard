@@ -1,0 +1,63 @@
+{% extends "insight_base.html" %}
+{% block title %}{{ m.bank.name }} - Executive summary{% endblock %}
+{% block actions %}<a class="btn" href="/analyses/{{ m.analysis_id }}?tab=activity">Lending activity &rarr;</a><a class="btn" href="/analyses/{{ m.analysis_id }}/evidence">Open analyst evidence &rarr;</a><a class="btn primary" href="?mode=present">Presentation mode</a>{% endblock %}
+{% block content %}
+{% set ev = "/analyses/" ~ m.analysis_id ~ "/evidence" %}
+
+<section class="ex-hero">
+  <div class="card ex-head">
+    {% set hl = m.headline %}
+    <div class="ex-kicker">{{ hl.kicker }}</div>
+    {% if hl.bank %}
+    <div class="ex-big"><span class="n bank">{{ hl.bank }}</span><span class="vs">vs</span><span class="n sba">{{ hl.sba }}</span>
+      <span class="pill {{ hl.direction }}">{{ hl.direction }} &middot; {{ hl.diff }}</span></div>
+    <div class="ex-legend"><span><b>{{ m.bank.name }}</b></span><span><b>SBA benchmark</b> (industry-matched)</span></div>
+    {% else %}
+    <div class="ex-big"><span class="n bank">{{ hl.big }}</span></div>
+    {% endif %}
+    <p class="ex-sentence">{{ hl.text }}</p>
+    <p class="muted" style="margin:8px 0 0"><a class="ev-link" href="{{ ev }}#compare">See the evidence for this comparison &rarr;</a></p>
+  </div>
+  <div class="tiles">
+    {% for t in m.tiles %}<div class="tile"><div class="v">{{ t.shown }}</div><div class="l">{{ t.label }}</div></div>{% endfor %}
+    {% if m.concentration %}<div class="tile wide"><div class="v">{{ m.concentration.share }}</div><div class="l">Largest industry: {{ m.concentration.industry }}</div></div>{% endif %}
+  </div>
+</section>
+
+<div class="ex-grid">
+  <section class="card">
+    <h2>Key findings</h2>
+    <ol class="findings">
+      {% for f in m.findings %}
+      <li id="{{ f.ref }}"><span class="ref">{{ f.ref }}</span>
+        <div><h3>{{ f.title }}</h3><p>{{ f.text }}</p>
+          {% if f.evidence %}<a class="ev-link" href="{{ ev }}#{{ f.ref }}">Evidence &rarr;</a>{% endif %}</div></li>
+      {% endfor %}
+    </ol>
+  </section>
+  <div>
+    {% if m.compare %}
+    <section class="card">
+      <h2>Bank vs SBA benchmark</h2>
+      <p class="muted" style="margin:-6px 0 10px">Loans approved FY2000 onward &middot; all loan sizes</p>
+      <table class="cmp">
+        <thead><tr><th>Measure</th><th class="num">Bank</th><th class="num">Benchmark</th><th class="num">Difference</th><th></th></tr></thead>
+        <tbody>{% for r in m.compare %}
+          <tr><td class="m"><b>{{ r.label }}</b><span>{{ r.plain|capitalize }}</span></td>
+            <td class="num"><b>{{ r.bank }}</b></td><td class="num">{{ r.sba }}</td><td class="num">{{ r.diff }}</td>
+            <td><span class="pill {{ r.direction }}">{{ r.direction }}</span></td></tr>{% endfor %}
+        </tbody>
+      </table>
+      <p class="muted" style="margin:8px 0 0">Lower or higher states the measured difference only; it is not a rating of the lender. <a class="ev-link" href="{{ ev }}#compare">Evidence &rarr;</a></p>
+    </section>
+    {% endif %}
+    <section class="card">
+      <h2>Material limitations</h2>
+      <ul class="limits">{% for x in m.limitations %}<li>{{ x.text }}</li>{% endfor %}</ul>
+      <p class="muted" style="margin:10px 0 0"><a class="ev-link" href="{{ ev }}#limitations">All limitations and unavailable evidence &rarr;</a></p>
+    </section>
+  </div>
+</div>
+
+<div class="notice" role="note"><span><strong>Preliminary benchmark.</strong> {{ m.notice }}</span><a href="{{ ev }}#limitations">Details</a></div>
+{% endblock %}

@@ -1,0 +1,28 @@
+/* Benchmarks view (Benchmark Intelligence Phase A). Extends insight.css. */
+.bm-notice { display: block; margin: 16px 0; padding: 12px 16px; background: #fff8e1; border: 1px solid #f0d98c; border-radius: 8px; font-size: 13.5px; line-height: 1.5; }
+.bm-sts li.bm-st { display: block; } .bm-sts p { margin: 4px 0; } .bm-out { display: inline-block; margin-bottom: 2px; }
+.bm-sub { margin: -4px 0 12px; }
+.bm-scale { display: grid; gap: 8px; margin: 6px 0 12px; }
+.bm-row { display: grid; grid-template-columns: minmax(220px, 34%) 1fr 72px; gap: 12px; align-items: center; }
+.bm-lab { font-size: 13.5px; }
+.bm-track { background: #eef1f4; border-radius: 4px; height: 14px; overflow: hidden; }
+.bm-bar { height: 100%; border-radius: 4px; }
+.bm-bar.bank { background: #1f4e79; } .bm-bar.approved { background: #6b8fb3; }
+.bm-bar.inv { background: repeating-linear-gradient(45deg, #b9c6d3, #b9c6d3 6px, #d6dee6 6px, #d6dee6 12px); }
+.bm-val { font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+.bm-row.bank .bm-lab { font-weight: 600; }
+.bm-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 16px 0; }
+.bm-card .bm-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.bm-card h3 { margin: 0; font-size: 15px; flex: 1; }
+.bm-code { font-weight: 700; background: #eef1f4; border-radius: 4px; padding: 1px 7px; font-size: 13px; }
+.bm-card.approved .bm-code { background: #dfe9f4; }
+.bm-big { font-size: 30px; font-weight: 700; margin: 8px 0 2px; font-variant-numeric: tabular-nums; }
+.bm-def { margin: 10px 0 0; font-size: 12.5px; }
+.bm-def dt { font-weight: 600; margin-top: 7px; } .bm-def dd { margin: 1px 0 0; color: #3b4a59; }
+.bm-id { font-size: 11px; color: #6b7785; font-family: ui-monospace, Menlo, monospace; }
+.bm-h3 { margin: 18px 0 8px; font-size: 15px; }
+.bm-ind td, .bm-ind th { font-size: 12.5px; white-space: nowrap; }
+.bm-ind td:first-child { white-space: normal; min-width: 220px; }
+.bm-all { margin-top: 10px; } .bm-all summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+.bm-dec td:first-child { width: 80%; }
+@media (max-width: 1000px) { .bm-cards { grid-template-columns: minmax(0, 1fr); } .bm-row { grid-template-columns: 1fr 64px; } .bm-track { grid-column: 1 / -1; } }

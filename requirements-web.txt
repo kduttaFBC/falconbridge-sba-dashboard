@@ -1,19 +1,26 @@
 # Browser prototype environment (this project's .venv only), pinned to the versions tested on 2026-10-29.
 # Install: python3.12 -m venv .venv && .venv/bin/python -m pip install -r requirements-web.txt
 # pytest and its dependencies are for tests only.
+# anthropic and its dependencies (httpcore2, httpx2, jiter, docstring_parser, sniffio, truststore): offline-
+# tested live provider for the controlled synthetic AI experiment (approved 2026-11-06); no call without approval.
 annotated-doc==0.0.5
 annotated-types==0.8.0
+anthropic==2.6.0
 anyio==4.15.1
 certifi==2026.10.23
 click==8.5.0
+docstring_parser==0.18.0
 et_xmlfile==2.0.0
 fastapi==0.162.0
 h11==0.16.0
+httpcore2==2.16.0
 httpcore==1.0.9
+httpx2==2.16.0
 httpx==0.28.1
 idna==3.20
 iniconfig==2.3.1
 Jinja2==3.1.6
+jiter==0.19.0
 MarkupSafe==3.0.4
 openpyxl==3.1.5
 opentelemetry-api==1.45.1
@@ -24,7 +31,9 @@ pydantic_core==2.50.1
 Pygments==2.21.0
 pytest==9.2.0
 python-multipart==0.0.32
+sniffio==1.3.1
 starlette==1.10.0
+truststore==0.10.5
 typing-inspection==0.4.4
 typing_extensions==4.16.0
 uvicorn==0.54.0

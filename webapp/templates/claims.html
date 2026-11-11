@@ -1,0 +1,87 @@
+{% extends "insight_base.html" %}
+{% block title %}{{ m.bank.name }} - Claims assessment{% endblock %}
+{% block content %}
+{% set ev = "/analyses/" ~ m.analysis_id ~ "/evidence" %}
+<div class="cl-grid">
+  <section class="card cl-form">
+    <h2>Assess a lender claim</h2>
+    <p class="muted" style="margin-top:-6px">Example claims are typed by the analyst for demonstration. They are not statements made by {{ m.bank.name }} or any other lender.</p>
+    <div class="presets">{% for key, t in presets %}<a href="?preset={{ key }}" class="{{ 'on' if text == t }}">{{ t }}</a>{% endfor %}</div>
+    <form method="get">
+      <label for="claim" class="muted">Or enter a claim</label>
+      <textarea id="claim" name="claim" maxlength="500" placeholder="e.g. Our % Cum. Loss over our full history is below 1% as of June 30, 2026.">{{ text }}</textarea>
+      <div class="actions" style="margin-top:10px"><button class="btn primary" type="submit">Assess claim</button><a class="btn" href="?">Clear</a></div>
+    </form>
+    <p class="muted" style="margin-top:14px">The assessment is deterministic and local: the same claim and analysis always give the same result. It uses only this Saved Analysis's evidence and never estimates a missing figure.</p>
+  </section>
+
+  <div>
+  {% if not result %}
+    <section class="card"><h2>How claims are assessed</h2>
+      <ul class="reasons">
+        <li><b>Supported / Contradicted</b>: a precisely defined claim (measure, population, reporting date, number or benchmark) compared with the evidence. This is numerical support only; methodology approval is shown separately.</li>
+        <li><b>Needs clarification</b>: the claim lacks a defined measure, population or period, or uses a word such as "minimal" that has no defined threshold.</li>
+        <li><b>Cannot be established</b>: overall judgements ("better", "outperforms", "strong") for which FalconBridge has no approved criteria, measures SBA FOIA data does not contain, or other periods.</li>
+      </ul>
+    </section>
+  {% else %}
+    {% set r = result %}
+    <section class="card">
+      <div class="muted">Claim</div>
+      <p style="font-size:17px;margin:4px 0 14px">&ldquo;{{ r.spec.text }}&rdquo;</p>
+      <div class="outcome o-{{ r.outcome }}">{{ r.outcome_text }}</div>
+      {% if r.interpreted %}<p class="muted" style="margin:12px 0 0"><b>Interpreted as:</b> {{ r.interpreted }}</p>{% endif %}
+      <ul class="reasons">{% for x in r.reasons %}<li>{{ x }}</li>{% endfor %}</ul>
+      {% if r.outcome in ("SUPPORTED", "CONTRADICTED") %}
+      <div class="split">
+        <div><div class="k">Numerical result</div><b>{{ "Supported" if r.outcome == "SUPPORTED" else "Contradicted" }}</b> by the evidence value{{ "s" if r.evidence|length > 1 }}.</div>
+        <div><div class="k">Methodology approval</div><b>{{ "Approved" if r.methodology_approved else "Not yet approved" }}.</b> {{ r.methodology }}</div>
+      </div>
+      {% endif %}
+      {% for n in r.notes %}<p class="muted" style="margin:10px 0 0">{{ n }}</p>{% endfor %}
+    </section>
+
+    {% if r.clarify %}
+    <section class="card clarify"><h2>Clarify the claim</h2>
+      <form method="get">
+        <input type="hidden" name="claim" value="{{ r.spec.text }}">
+        {% for c in r.clarify %}
+          {% if c.options %}
+          <fieldset><legend>{{ c.question }}</legend>
+            {% for o in c.options %}<label><input type="radio" name="{{ c.field }}" value="{{ o.value }}" required{% if chosen[c.field] == o.value %} checked{% endif %}> {{ o.label }}</label>{% endfor %}
+          </fieldset>
+          {% else %}<p class="muted">&bull; {{ c.question }} Edit the claim on the left.</p>{% endif %}
+        {% endfor %}
+        {% for k in ("metric", "population", "period") %}{% if chosen[k] and k not in r.clarify|map(attribute="field")|list %}<input type="hidden" name="{{ k }}" value="{{ chosen[k] }}">{% endif %}{% endfor %}
+        {% if r.clarify|selectattr("options")|list %}<button class="btn primary" type="submit">Assess with these definitions</button>{% endif %}
+      </form>
+    </section>
+    {% endif %}
+
+    {% if r.statement %}
+    <section class="card"><h2>Evidence</h2>
+      <p style="margin:0 0 8px">{{ r.statement.text }}</p>
+      <div class="muted">Claim verifier: <b>{{ r.statement.outcome }}</b> &middot; validation: {{ r.statement.status_text }} &middot; methodology: {{ r.statement.methodology }}{% if r.statement.caveats %} &middot; caveats: {{ r.statement.caveats|join(", ") }}{% endif %}</div>
+      {% if r.evidence %}<div class="scroll" style="margin-top:10px"><table class="ev"><thead><tr><th>Evidence</th><th>Measure</th><th class="num">Value</th><th>Population and period</th><th>Validation status</th></tr></thead><tbody>
+        {% for d in r.evidence %}<tr><td><a class="mono" href="{{ ev }}?ev={{ d.id }}#{{ d.id }}">{{ d.id }}</a></td><td>{{ d.label }}</td><td class="num"><b>{{ d.shown }}</b></td>
+          <td>{{ d.population }}<div class="lim">as of {{ d.as_of }}{% if d.denominator %} &middot; denominator: {{ d.denominator }}{% endif %}</div></td><td><span class="badge b-status">{{ d.status_text }}</span></td></tr>{% endfor %}
+      </tbody></table></div>{% endif %}
+    </section>
+    {% endif %}
+
+    {% if r.context %}
+    <section class="card"><h2>Measured differences (context, not a conclusion)</h2>
+      <p class="muted" style="margin-top:-6px">Loans approved FY2000 onward, all loan sizes. Preliminary industry-matched benchmark; not adjusted for portfolio age, loan size or industry mix.</p>
+      <table class="cmp"><thead><tr><th>Measure</th><th class="num">Bank</th><th class="num">Benchmark</th><th class="num">Difference</th><th></th></tr></thead><tbody>
+      {% for c in r.context %}<tr><td><b>{{ c.label }}</b></td><td class="num">{{ c.bank }}</td><td class="num">{{ c.sba }}</td><td class="num">{{ c.diff }}</td>
+        <td><a class="ev-link" href="{{ ev }}?{% for i in c.evidence %}ev={{ i }}&amp;{% endfor %}#lookup">Evidence &rarr;</a></td></tr>{% endfor %}
+      </tbody></table>
+      {% if r.m2 %}<p class="muted" style="margin:10px 0 0">Claim verifier on the lender's wording: <b>{{ r.m2.outcome }}</b>: {{ r.m2.explanation }}</p>{% endif %}
+    </section>
+    {% endif %}
+
+    <p class="repro">Assessment {{ r.assessment_id }} &middot; {{ r.assessor_version }} &middot; evidence as of {{ m.as_of }} &middot; same claim and analysis &rarr; same identifier and result.</p>
+  {% endif %}
+  </div>
+</div>
+{% endblock %}

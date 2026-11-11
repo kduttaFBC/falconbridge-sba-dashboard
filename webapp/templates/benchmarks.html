@@ -1,0 +1,112 @@
+{% extends "insight_base.html" %}
+{% block title %}{{ m.bank.name }} - Benchmark comparisons{% endblock %}
+{% block actions %}<a class="btn" href="/analyses/{{ m.analysis_id }}/evidence">Analyst evidence &rarr;</a><a class="btn" href="/analyses/{{ m.analysis_id }}/executive">Executive summary &rarr;</a>{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/benchmarks.css">
+<div class="bm-notice">
+  <b>Benchmark comparisons &middot; Phase A (investigative).</b>
+  B0 is the current SBA benchmark used in the Executive Summary (FalconBridge-directed, preliminary), shown here unchanged.
+  B1 and B2 are <b>investigative comparisons</b> prepared for discussion: they are not FalconBridge methodology and carry no
+  higher/lower verdict.
+</div>
+
+<section class="card">
+  <h2>% Cum. Defaulted: the bank and three SBA comparisons</h2>
+  <p class="muted bm-sub">Loans approved FY2000 onward &middot; original loan amounts &middot; cumulative to {{ m.as_of_text }}</p>
+  <div class="bm-scale">
+    {% for s in m.scale %}
+    <div class="bm-row{% if s.bank %} bank{% endif %}">
+      <div class="bm-lab"><b>{{ s.code }}</b> {{ s.label }}{% if not s.approved and not s.bank %} <span class="tag-s">investigative</span>{% endif %}</div>
+      <div class="bm-track"><div class="bm-bar{% if s.bank %} bank{% elif s.approved %} approved{% else %} inv{% endif %}" style="width: {{ s.width }}"></div></div>
+      <div class="bm-val">{{ s.shown }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="muted bm-sub">Bars are proportional to the rate; the longest bar is the highest rate shown. Bank figure:
+    {{ m.bank_fy2000.loans }} loans, {{ m.bank_fy2000.numerator }} defaulted of {{ m.bank_fy2000.denominator }}.
+    Full history (reference only, not comparable): {{ m.bank_fy2000.full }} over {{ m.bank_fy2000.full_loans }} loans.</p>
+</section>
+
+<div class="bm-cards">
+  {% for c in m.cards %}
+  <section class="card bm-card{% if c.approved %} approved{% endif %}">
+    <div class="bm-head"><span class="bm-code">{{ c.code }}</span><h3>{{ c.name }}</h3>
+      <span class="pill {{ 'lower' if c.approved else 'na' }}">{{ c.status }}</span></div>
+    <div class="bm-big">{{ c.value }}</div>
+    {% if c.diff %}<div class="muted">Bank (FY2000+) minus {{ c.code }}: <b>{{ c.diff }}</b></div>{% endif %}
+    <dl class="bm-def">
+      <dt>Population</dt><dd>{{ c.population }}{% if c.loans %} &middot; {{ "{:,}".format(c.loans) }} loans{% endif %}</dd>
+      <dt>Numerator</dt><dd>{{ c.numerator }}{% if c.code != 'B2' %} (original amount of defaulted loans){% endif %}</dd>
+      <dt>Denominator</dt><dd>{{ c.denominator }}{% if c.code != 'B2' %} (original amount){% endif %}</dd>
+      <dt>Weighting</dt><dd>{{ c.weighting }}</dd>
+      {% if c.coverage %}<dt>Coverage</dt><dd>{{ c.coverage.covered }} of the bank's FY2000+ original amount used
+        (credible industries {{ c.coverage.credible }}, thin {{ c.coverage.thin }}, sparse {{ c.coverage.sparse }}).
+        {{ c.coverage.rule }}{% if c.coverage.excluded %} Excluded: {{ c.coverage.excluded|join("; ") }}.{% endif %}</dd>{% endif %}
+      <dt>Validation</dt><dd>{% if c.verified %}<span class="badge b-verified">Independently verified</span>{% else %}{{ c.validation or "—" }}{% endif %}
+        {% if c.evidence %}<span class="bm-id">{{ c.evidence }}</span>{% endif %}</dd>
+    </dl>
+  </section>
+  {% endfor %}
+</div>
+
+{% if m.decomposition %}
+<section class="card">
+  <h2>Industry contribution analysis <span class="tag-s">investigative</span></h2>
+  <p class="muted bm-sub">How the difference between the bank and B0 divides between industry mix and performance within
+    industries. Arithmetic attribution, not a causal explanation.</p>
+  <table class="cmp bm-dec">
+    <tbody>
+      <tr><td>Bank (FY2000+) minus B0</td><td class="num"><b>{{ m.decomposition.gap }}</b></td></tr>
+      <tr><td>Industry-mix component (B2 minus B0): the bank lends in different proportions across industries</td><td class="num">{{ m.decomposition.mix_total }}</td></tr>
+      <tr><td>Within-industry component (bank minus B2 on covered industries): the bank's rate vs the SBA rate in the same industries</td><td class="num">{{ m.decomposition.within_total }}</td></tr>
+      <tr><td>Sparse-industry adjustment (industries excluded from B2)</td><td class="num">{{ m.decomposition.sparse_adjustment }}</td></tr>
+    </tbody>
+  </table>
+  <h3 class="bm-h3">Industries contributing most</h3>
+  <div class="scroll">
+  <table class="cmp bm-ind">
+    <thead><tr><th>Industry</th><th>NAICS</th><th class="num">Bank loans</th><th class="num">Bank share</th><th class="num">SBA share</th>
+      <th class="num">Bank rate</th><th class="num">SBA rate</th><th class="num">Mix</th><th class="num">Within</th><th class="num">Total</th><th>Flags</th></tr></thead>
+    <tbody>{% for x in m.industries[:15] %}
+      <tr><td>{{ x.name }}</td><td>{{ x.naics }}</td><td class="num">{{ x.bank_loans }}</td><td class="num">{{ x.bank_share }}</td><td class="num">{{ x.sba_share }}</td>
+        <td class="num">{{ x.bank_rate }}</td><td class="num">{{ x.sba_rate }}</td><td class="num">{{ x.mix }}</td><td class="num">{{ x.within }}</td><td class="num"><b>{{ x.total }}</b></td>
+        <td>{% for f in x.flags %}<span class="tag-s">{{ f }}</span> {% endfor %}</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if m.industries|length > 15 %}
+  <details class="bm-all"><summary>All {{ m.industries|length }} industries with a contribution</summary>
+    <div class="scroll"><table class="cmp bm-ind"><thead><tr><th>Industry</th><th class="num">Bank loans</th><th class="num">Bank share</th><th class="num">SBA share</th><th class="num">Bank rate</th><th class="num">SBA rate</th><th class="num">Mix</th><th class="num">Within</th><th>Flags</th></tr></thead>
+      <tbody>{% for x in m.industries %}<tr><td>{{ x.name }}</td><td class="num">{{ x.bank_loans }}</td><td class="num">{{ x.bank_share }}</td><td class="num">{{ x.sba_share }}</td><td class="num">{{ x.bank_rate }}</td><td class="num">{{ x.sba_rate }}</td><td class="num">{{ x.mix }}</td><td class="num">{{ x.within }}</td><td>{{ x.flags|join("; ") }}</td></tr>{% endfor %}</tbody></table></div>
+  </details>
+  {% endif %}
+</section>
+{% endif %}
+
+<div class="ex-grid">
+  <section class="card">
+    <h2>Statements checked against the evidence</h2>
+    <ol class="findings bm-sts">{% for s in m.statements %}
+      <li class="bm-st"><div><span class="badge bm-out {{ 'b-verified' if s.outcome == 'ACCEPTED' else 'b-rejected' }}">{{ s.outcome|replace("_", " ")|lower }}</span>
+          <p>{{ s.text }}</p>
+          {% if s.findings %}<p class="muted">{{ s.findings|join(" ") }}</p>{% endif %}
+          <p class="muted bm-id">{{ s.status_text }}{% if s.caveats %} &middot; caveats: {{ s.caveats|join(", ")|replace("_", " ")|lower }}{% endif %}</p></div></li>{% endfor %}
+    </ol>
+  </section>
+  <div>
+    <section class="card">
+      <h2>Methodology and limitations</h2>
+      <ul class="limits">{% for x in m.caveats %}<li>{{ x }}</li>{% endfor %}</ul>
+    </section>
+    <section class="card">
+      <h2>Reconciliation and validation</h2>
+      {% set r = m.reconciliation %}
+      <ul class="limits">
+        <li>B0 shown {{ r.b0_shown }}; frozen in the Saved Analysis {{ r.b0_frozen }}: <b>{{ "identical" if r.b0_identical else "DIFFERENT" }}</b>.</li>
+        <li>Benchmark record {{ m.record_id }}: {% if r.frozen == "matches" %}frozen copy matches the recomputation{% elif r.frozen == "differs" %}<b>a frozen copy exists but differs from the recomputation (the release data changed)</b>{% else %}not yet frozen{% endif %}.</li>
+        <li>Independent validation: {% if r.validation_records %}{{ r.validation_records|join(", ") }}; {{ r.agree }} of {{ r.count }} values independently verified{% if r.disagree %}; <b>{{ r.disagree|length }} disagree</b>{% endif %}{% else %}no clean-room record for this benchmark record yet{% endif %}.</li>
+      </ul>
+    </section>
+  </div>
+</div>
+{% endblock %}
