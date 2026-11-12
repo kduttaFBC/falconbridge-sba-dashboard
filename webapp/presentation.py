@@ -56,8 +56,10 @@ NOT_EVIDENCED = [
     ("Current outstanding balances", "SBA FOIA data publishes original approval amounts and gross charge-offs only."),
     ("Charge-offs by calendar year, loan status and static pool timing", "Shown on the dashboard (Methodology & "
      "Reports: Supplementary analysis; Portfolio Analysis: static pool); not yet part of the evidence layer."),
-    ("Independent validation record for this analysis", "None attached; values are reconciled to FalconBridge's "
-     "workbook formulas, not independently re-verified (planned: clean-room validation producer)."),
+    ("Independent validation record for this analysis", "None attached to this Saved Analysis; its values are "
+     "reconciled to FalconBridge's workbook formulas, not independently re-verified. A clean-room validation record "
+     "(an independent recomputation from the SBA FOIA files) can be produced for a Saved Analysis, but none has been "
+     "attached to this one."),
     ("Mix-adjusted benchmark comparison", "Not implemented; overall rates are not adjusted for vintage, size, term or "
      "industry mix."),
     ("Approved evaluation criteria", "FalconBridge has not approved criteria for judging a lender as better or worse; "

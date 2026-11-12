@@ -16,6 +16,17 @@ AUTH_MODE = os.environ.get("FBX_AUTH_MODE", "local")     # "local": single user,
 PREVIEW_USERS_SPEC = os.environ.get("FBX_PREVIEW_USERS", "")   # preview mode: user:scrypt-hash entries (Render secret)
 LOCAL_USER = "local"
 PUBLIC_USER = "public"
+
+
+def environment():
+    """Wording that describes where the application runs (header tag, view footer, workbook Generation_Info):
+    'local' mode runs on the analyst's computer; 'preview' and 'public' modes run on the hosted server (Render).
+    Display text only - it does not affect any calculation."""
+    if AUTH_MODE in ("preview", "public"):
+        return {"hosted": True, "tag": "Hosted preview", "footer": "Hosted preview",
+                "processing": "processed on FalconBridge's hosted application server", "generation": "web application (hosted)"}
+    return {"hosted": False, "tag": "Local", "footer": "Local demonstration",
+            "processing": "processed on this computer only", "generation": "web application (local)"}
 ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"] + [
     h.strip() for h in os.environ.get("FBX_ALLOWED_HOSTS", "").split(",") if h.strip()]   # e.g. the Render hostname
 JOB_TIMEOUT = int(os.environ.get("FBX_JOB_TIMEOUT", "300"))   # seconds; a generation is stopped after this

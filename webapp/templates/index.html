@@ -10,21 +10,22 @@
       <select name="period" id="period">{% for p in periods %}<option value="{{ p }}" {% if p == period %}selected{% endif %}>{{ p[:4] }}-{{ p[4:6] }}-{{ p[6:] }}</option>{% endfor %}</select>
     </label>
     <label>1. State
-      <select name="state" id="state">
-        <option value="">Select a state</option>
+      <select id="state">
+        <option value="*" selected>All states &mdash; {{ "{:,}".format(states|sum(attribute=1)) }} banks</option>
         {% for s, n in states %}<option value="{{ s }}">{{ s or "(no state published)" }} &mdash; {{ n }} bank{{ "s" if n != 1 }}</option>{% endfor %}
       </select>
     </label>
     <div class="combo">
       <label for="bank-input">2. Bank</label>
-      <input id="bank-input" placeholder="Select a state first" disabled role="combobox" aria-expanded="false" aria-controls="bank-list" aria-autocomplete="list">
+      <input id="bank-input" placeholder="Loading banks..." disabled role="combobox" aria-expanded="false" aria-controls="bank-list" aria-autocomplete="list">
       <input type="hidden" name="name" id="bank-name" required>
+      <input type="hidden" name="state" id="bank-state">
       <ul id="bank-list" class="combo-list" role="listbox" hidden></ul>
       <div class="muted" id="bank-hint">Type part of the name, a city or an FDIC certificate to filter.</div>
     </div>
     <label>3. Original loan balance threshold ($)
       <input name="threshold" id="threshold" value="{{ '{:,}'.format(default_threshold) }}" inputmode="numeric">
-      <span class="chips">{% for v in (150000, 350000, 500000, 1000000) %}<button type="button" class="chip" data-v="{{ '{:,}'.format(v) }}">{{ "$1M" if v == 1000000 else "$" ~ (v // 1000) ~ "K" }}</button>{% endfor %}</span>
+      <span class="chips">{% for v, lab in ((150000, "$150K"), (350000, "$350K"), (500000, "$500K"), (1000000, "$1M"), (1250000, "$1.25M")) %}<button type="button" class="chip" data-v="{{ '{:,}'.format(v) }}">{{ lab }}</button>{% endfor %}</span>
     </label>
     <div><button type="submit" class="primary" id="go" disabled>Continue</button></div>
   </form>
@@ -61,33 +62,38 @@
 (function () {
   const $ = (id) => document.getElementById(id);
   const state = $("state"), input = $("bank-input"), list = $("bank-list"), hidden = $("bank-name"), go = $("go");
+  const bankState = $("bank-state"), ALL = "*";
   let banks = [], active = -1;
   const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
   function render(filter) {
     const f = (filter || "").toLowerCase();
     const shown = banks.filter((b) => !f || b.name.toLowerCase().includes(f) || b.cities.join(" ").toLowerCase().includes(f)
       || b.certs.some((c) => c.includes(f)));
-    list.innerHTML = shown.slice(0, 400).map((b, i) =>
-      `<li role="option" data-name="${esc(b.name)}" id="opt-${i}"><span class="b-name">${esc(b.name)}</span>` +
+    list.innerHTML = shown.slice(0, 10000).map((b, i) =>
+      `<li role="option" data-name="${esc(b.name)}" data-state="${esc(b.state)}" id="opt-${i}"><span class="b-name">${esc(b.name)}` +
+      (state.value === ALL ? ` (${esc(b.state || "no state")})` : "") + `</span>` +
       (b.several_lenders ? ' <span class="flag">more than one lender - confirm next</span>' : "") +
       (b.similar_name && !b.several_lenders ? ' <span class="flag">similar name</span>' : "") +
       `<span class="b-meta">${esc(b.cities.slice(0, 3).join(", ") || "city not published")} &middot; FDIC ${esc(b.certs.join(", ") || "none")} &middot; ${b.eligible.toLocaleString("en-US")} loans</span></li>`).join("")
-      || '<li class="muted">No bank in this state matches.</li>';
+      || '<li class="muted">No bank matches.</li>';
     list.hidden = false; input.setAttribute("aria-expanded", "true"); active = -1;
   }
-  function choose(name) {
-    hidden.value = name; input.value = name; list.hidden = true; input.setAttribute("aria-expanded", "false"); go.disabled = false;
+  function choose(li) {
+    hidden.value = li.dataset.name; bankState.value = li.dataset.state; input.value = li.dataset.name +
+      (state.value === ALL ? ` (${li.dataset.state || "no state"})` : "");
+    list.hidden = true; input.setAttribute("aria-expanded", "false"); go.disabled = false;
   }
-  state.addEventListener("change", async () => {
-    hidden.value = ""; input.value = ""; go.disabled = true; list.hidden = true;
-    if (!state.value && state.selectedIndex === 0) { input.disabled = true; input.placeholder = "Select a state first"; return; }
+  async function load(focus) {
+    hidden.value = ""; bankState.value = ""; input.value = ""; go.disabled = true; list.hidden = true;
     input.disabled = true; input.placeholder = "Loading banks...";
     const r = await fetch(`/api/banks?period=${encodeURIComponent($("period").value)}&state=${encodeURIComponent(state.value)}`);
     banks = await r.json();
-    input.disabled = false; input.placeholder = `Search ${banks.length} banks in ${state.value || "this group"}`;
-    $("bank-hint").textContent = `${banks.length} banks with eligible SBA 7(a) loans, largest first. Type to filter by name, city or FDIC certificate.`;
-    input.focus(); render("");
-  });
+    const where = state.value === ALL ? "all states" : (state.value || "this group");
+    input.disabled = false; input.placeholder = `Search ${banks.length.toLocaleString("en-US")} banks in ${where}`;
+    $("bank-hint").textContent = `${banks.length.toLocaleString("en-US")} banks with eligible SBA 7(a) loans in ${where}, largest first. Type to filter by name, city or FDIC certificate.`;
+    if (focus) { input.focus(); render(""); }
+  }
+  state.addEventListener("change", () => load(true));
   input.addEventListener("input", () => { hidden.value = ""; go.disabled = true; render(input.value); });
   input.addEventListener("focus", () => { if (banks.length) render(input.value === hidden.value ? "" : input.value); });
   input.addEventListener("keydown", (e) => {
@@ -96,16 +102,18 @@
       e.preventDefault(); active = Math.max(0, Math.min(items.length - 1, active + (e.key === "ArrowDown" ? 1 : -1)));
       items.forEach((li, i) => li.classList.toggle("active", i === active));
       if (items[active]) { items[active].scrollIntoView({block: "nearest"}); input.setAttribute("aria-activedescendant", items[active].id); }
-    } else if (e.key === "Enter" && active >= 0 && items[active]) { e.preventDefault(); choose(items[active].dataset.name); }
+    } else if (e.key === "Enter" && active >= 0 && items[active]) { e.preventDefault(); choose(items[active]); }
     else if (e.key === "Escape") { list.hidden = true; }
   });
-  list.addEventListener("mousedown", (e) => { const li = e.target.closest("li[data-name]"); if (li) { e.preventDefault(); choose(li.dataset.name); } });
+  list.addEventListener("mousedown", (e) => { const li = e.target.closest("li[data-name]"); if (li) { e.preventDefault(); choose(li); } });
   document.addEventListener("click", (e) => { if (!e.target.closest(".combo")) list.hidden = true; });
   document.querySelectorAll(".chip").forEach((c) => c.addEventListener("click", () => { $("threshold").value = c.dataset.v; }));
   $("period").addEventListener("change", () => { location.href = "/?period=" + encodeURIComponent($("period").value); });
   const pre = new URLSearchParams(location.search).get("state");
   if (pre !== null && [...state.options].some((o) => o.value === pre && o.index > 0)) {
-    state.value = pre; state.dispatchEvent(new Event("change"));
+    state.value = pre; load(true);
+  } else {
+    load(false);                                   // "All states" by default: the full bank list is ready on focus
   }
 })();
 </script>

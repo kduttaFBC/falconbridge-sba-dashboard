@@ -32,6 +32,6 @@
   </nav>
 </div></div>
 <main class="ib-wrap">{% block content %}{% endblock %}</main>
-<footer class="ib-foot">Local demonstration &middot; public SBA 7(a) FOIA data &middot; processed on this computer only &middot; {{ m.view_version }} &middot; generator {{ version }}</footer>
+{% set env = environment() %}<footer class="ib-foot">{{ env.footer }} &middot; public SBA 7(a) FOIA data &middot; {{ env.processing }} &middot; {{ m.view_version }} &middot; generator {{ version }}</footer>
 </body>
 </html>

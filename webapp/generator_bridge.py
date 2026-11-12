@@ -64,11 +64,15 @@ def states(period):
     return sorted(n.items())
 
 
+ALL_STATES = "*"
+
+
 def banks(period, state):
-    """Every eligible bank (name) in a state, largest first, with the identity evidence the dropdown shows."""
+    """Every eligible bank (name) in a state - or in every state when state is ALL_STATES - largest first, with the
+    identity evidence the dropdown shows."""
     out = []
     for (name, st), v in directory(period).items():
-        if st == state and v["eligible"] > 0:
+        if (state == ALL_STATES or st == state) and v["eligible"] > 0:
             cities = sorted({x["city"] for x in v["lenders"] if x["eligible"] > 0})
             out.append({"name": name, "state": st, "eligible": v["eligible"], "certs": [c for c in v["certs"] if c],
                         "cities": cities, "several_lenders": len(v["certs"]) > 1})

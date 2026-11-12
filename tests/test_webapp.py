@@ -175,7 +175,7 @@ def assert_equivalent(generated, validated):
     dv = dict(gi_v)
     assert [k for k, x in gi_g if k in dv and dv[k] != x] and all(
         k in GI_CHANGED for k, x in gi_g if k in dv and dv[k] != x)
-    assert dict(gi_g)["Selection entered by analyst"].startswith("browser prototype (local):")
+    assert dict(gi_g)["Selection entered by analyst"].startswith("web application (local):")
     from openpyxl import load_workbook
     names = load_workbook(generated, read_only=True).sheetnames
     assert names == load_workbook(validated, read_only=True).sheetnames + ["Threshold_Analysis"]
@@ -263,6 +263,22 @@ def test_state_dropdown_and_complete_bank_list():
     assert next(b for b in mo if b["name"] == "Citizens Bank")["several_lenders"]
     r = client.get("/")
     assert 'id="state"' in r.text and 'id="bank-input"' in r.text and "350,000" in r.text
+
+
+def test_all_states_bank_list_and_threshold_chips():
+    """'All states' (the default) lists every eligible bank nationwide with its state; the chosen bank's state is
+    submitted through the hidden field, so /confirm receives a real state. The $1.25M threshold chip is offered."""
+    from webapp import analysis as AN, generator_bridge as GB
+    states = client.get("/api/states", params={"period": "20260630"}).json()
+    every = client.get("/api/banks", params={"period": "20260630", "state": GB.ALL_STATES}).json()
+    assert len(every) == sum(s["banks"] for s in states)
+    assert {("US Metro Bank", "CA"), ("FinWise Bank", "UT"), ("Shoreham Bank", "RI")} <= {(b["name"], b["state"])
+                                                                                          for b in every}
+    assert [b["eligible"] for b in every] == sorted((b["eligible"] for b in every), reverse=True)
+    r = client.get("/", params={"period": "20260630"})
+    assert '<option value="*" selected>All states' in r.text and 'name="state" id="bank-state"' in r.text
+    assert 'data-v="1,250,000">$1.25M<' in r.text and 'data-v="1,000,000">$1M<' in r.text
+    assert AN.parse_threshold("1,250,000") == (1_250_000, None)
 
 
 def test_threshold_rule_boundaries_bank_and_benchmark_and_excel_criteria():
@@ -601,6 +617,57 @@ def test_public_mode_has_no_sign_in_but_keeps_security_headers(monkeypatch):
     assert r.headers["X-Frame-Options"] == "DENY" and r.headers["Cache-Control"] == "no-store"
     assert client.get("/analyses").status_code == 200
     assert client.get("/", headers={"Host": "evil.example"}).status_code == 400
+
+
+def _saved_for(owner):
+    """A real Saved Analysis (US Metro, 20260630, $350,000) owned by `owner`, for page-wording tests."""
+    from webapp import analysis as AN, generator_bridge as GB, saved as SV
+    sel = GB.resolve("20260630", "US Metro Bank", "CA")
+    return SV.save(owner, AN.compute("20260630", sel, 350000), "0" * 32, "both")["id"]
+
+
+@pytest.mark.parametrize("mode", ["local", "preview", "public"])
+def test_environment_wording_header_footer_and_generation_info(monkeypatch, mode):
+    """Hosted modes never claim local processing; local mode keeps its wording. Display text only."""
+    monkeypatch.setattr(settings, "AUTH_MODE", mode)
+    env = settings.environment()
+    hosted = mode != "local"
+    assert env["hosted"] is hosted
+    assert env["tag"] == ("Hosted preview" if hosted else "Local")
+    assert env["generation"] == ("web application (hosted)" if hosted else "web application (local)")
+    assert ("this computer" in env["processing"]) is not hosted
+    if mode == "preview":
+        return                                        # page rendering under preview is covered by the gate tests
+    r = client.get("/", params={"period": "20260630"})
+    assert f'<span class="tag">{env["tag"]}</span>' in r.text
+    assert ("Local" in r.text.split('class="tag">')[1][:20]) is not hosted
+    aid = _saved_for(settings.PUBLIC_USER if hosted else settings.LOCAL_USER)
+    ex = client.get(f"/analyses/{aid}/executive").text
+    import html as _html
+    footer = _html.unescape(ex.split('<footer class="ib-foot">')[1].split("</footer>")[0])
+    assert footer.startswith(env["footer"]) and env["processing"] in footer
+    assert ("processed on this computer only" in ex) is not hosted
+    assert "browser prototype" not in ex
+    if hosted:
+        assert "Local demonstration" not in ex
+
+
+def test_not_evidenced_validation_wording_is_accurate():
+    """The 'no validation record' text no longer calls the clean-room producer 'planned', and never claims a record
+    is attached; it appears only when no validation record applies."""
+    from webapp import presentation as PR
+    text = dict(PR.NOT_EVIDENCED)["Independent validation record for this analysis"]
+    assert "planned" not in text and "None attached to this Saved Analysis" in text
+    assert "not independently re-verified" in text and "none has been attached to this one" in text
+    assert PR._not_evidenced({"validations_applied": []}) == PR.NOT_EVIDENCED
+    with_record = PR._not_evidenced({"validations_applied": ["VR-x"]})
+    assert not any(x[0] == "Independent validation record for this analysis" for x in with_record)
+
+
+def test_claims_page_wording_has_no_local_claim():
+    aid = _saved_for(settings.LOCAL_USER)
+    t = client.get(f"/analyses/{aid}/claims").text
+    assert "deterministic and local" not in t and "runs inside this application (no external AI service)" in t
 
 
 def test_server_refuses_public_start_without_preview_credentials():

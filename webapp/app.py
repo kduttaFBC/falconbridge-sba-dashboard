@@ -42,6 +42,7 @@ from .jobs import JobManager, audit
 settings.check_app_data_location()
 HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=str(HERE / "templates"))
+templates.env.globals["environment"] = settings.environment     # header / footer wording (local vs hosted)
 app = FastAPI(title="FalconBridge SBA FOIA - preliminary", docs_url=None, redoc_url=None, openapi_url=None)
 class HostCheck(TrustedHostMiddleware):
     """Host-header check for every route except /healthz, which a hosting platform's health checker may call with an

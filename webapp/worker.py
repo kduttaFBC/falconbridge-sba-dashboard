@@ -12,6 +12,7 @@ import traceback
 from pathlib import Path
 
 from . import generator_bridge as GB
+from . import settings
 
 B_LABEL = GB.B.threshold_label
 
@@ -24,7 +25,7 @@ def RESOLUTION_LABEL(sel):
 def generate_job(p, job_dir, log):
     """The generation and the executed checks for one job (unchanged from the in-process runner)."""
     sel = GB.resolve(p["period"], p["bank_name"], p["bank_state"], p.get("cert"), p.get("location_ids"))
-    inputs = "browser prototype (local): " + "; ".join(
+    inputs = settings.environment()["generation"] + ": " + "; ".join(
         f"{k}={v}" for k, v in (("period", p["period"]), ("bank-name", p["bank_name"]), ("bank-state", p["bank_state"]),
                                 ("fdic-cert", p.get("cert")), ("location-id", ",".join(p.get("location_ids") or [])))
         if v)
